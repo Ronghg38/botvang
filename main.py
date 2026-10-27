@@ -7,8 +7,8 @@ from datetime import datetime, timedelta, timezone
 # --- CẤU HÌNH THÔNG TIN ---
 TELEGRAM_TOKEN = "8234059775:AAHk8kv9ruTGV_qsGbFXC7SgTxfRwWOO1BI"
 TELEGRAM_CHAT_ID = "5931570040"
-SYMBOL = "GC=F"  # Mã vàng trên Yahoo Finance (XAU/USD)
-SL_PIPS = 4.0    # Khoảng cách Stop Loss gọn hơn (4 giá)
+SYMBOL = "GC=F"  # Mã vàng trên Yahoo Finance
+SL_PIPS = 4.0    # Khoảng cách Stop Loss (4 giá)
 
 # Múi giờ Việt Nam (UTC+7)
 VN_TZ = timezone(timedelta(hours=7))
@@ -49,7 +49,7 @@ def calculate_indicators(df):
     """Tính toán EMA (9, 21), RSI (14) và MA 200"""
     df['EMA9'] = df['Close'].ewm(span=9, adjust=False).mean()
     df['EMA21'] = df['Close'].ewm(span=21, adjust=False).mean()
-    df['MA200'] = df['Close'].rolling(window=200).mean() # Bộ lọc xu hướng
+    df['MA200'] = df['Close'].rolling(window=200).mean()
     
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
@@ -59,7 +59,7 @@ def calculate_indicators(df):
     return df
 
 def check_signal(df, timeframe_name):
-    """Kiểm tra tín hiệu giao dịch và format tin nhắn gọn gàng"""
+    """Kiểm tra tín hiệu giao dịch và format tên CAUTURONG"""
     if df is None or len(df) < 210:
         return
     
@@ -84,7 +84,7 @@ def check_signal(df, timeframe_name):
         tp2 = price + (SL_PIPS * 2.2)
         
         msg = (
-            f"🟢 **LỆNH MUA (TRADERKHOA)**\n"
+            f"🟢 **LỆNH MUA (CAUTURONG)**\n"
             f"Cặp: XAUUSD | {timeframe_name.lower()}\n"
             f"Entry: `{price:.2f}`\n"
             f"SL: `{sl:.2f}`\n"
@@ -101,7 +101,7 @@ def check_signal(df, timeframe_name):
         tp2 = price - (SL_PIPS * 2.2)
         
         msg = (
-            f"🔴 **LỆNH BÁN (TRADERKHOA)**\n"
+            f"🔴 **LỆNH BÁN (CAUTURONG)**\n"
             f"Cặp: XAUUSD | {timeframe_name.lower()}\n"
             f"Entry: `{price:.2f}`\n"
             f"SL: `{sl:.2f}`\n"
@@ -112,9 +112,9 @@ def check_signal(df, timeframe_name):
         send_telegram_message(msg)
 
 # --- KHỞI ĐỘNG BOT ---
-print("🚀 Gold Trading Bot (VN Time) đang chạy...")
+print("🚀 Gold Trading Bot (CAUTURONG) đang chạy...")
 init_time = get_vn_time().strftime('%Y-%m-%d %H:%M:%S')
-send_telegram_message(f"🚀 *Gold Trading Bot (Giờ VN)* đã khởi động thành công lúc `{init_time}`!")
+send_telegram_message(f"🚀 *Gold Trading Bot (CAUTURONG)* đã khởi động thành công lúc `{init_time}`!")
 
 last_daily_report_date = None
 
@@ -138,7 +138,7 @@ while True:
                 summary_msg = (
                     f"📊 **BÁO CÁO TỔNG KẾT TRONG NGÀY**\n"
                     f"📅 Ngày: {current_time.strftime('%d/%m/%Y')}\n"
-                    f"✅ Hệ thống chạy ổn định."
+                    f"✅ Hệ thống CAUTURONG chạy ổn định."
                 )
                 send_telegram_message(summary_msg)
                 last_daily_report_date = current_time.date()
