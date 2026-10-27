@@ -2,13 +2,20 @@ import time
 import requests
 import yfinance as yf
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 # --- CẤU HÌNH THÔNG TIN ---
 TELEGRAM_TOKEN = "8234059775:AAHk8kv9ruTGV_qsGbFXC7SgTxfRwWOO1BI"
 TELEGRAM_CHAT_ID = "5931570040"
 SYMBOL = "GC=F"  # Mã vàng trên Yahoo Finance (XAU/USD)
 SL_PIPS = 4.0    # Khoảng cách Stop Loss gọn hơn (4 giá)
+
+# Múi giờ Việt Nam (UTC+7)
+VN_TZ = timezone(timedelta(hours=7))
+
+def get_vn_time():
+    """Lấy thời gian chuẩn theo giờ Việt Nam"""
+    return datetime.now(VN_TZ)
 
 def send_telegram_message(message):
     """Gửi thông báo tới Telegram"""
@@ -52,7 +59,7 @@ def calculate_indicators(df):
     return df
 
 def check_signal(df, timeframe_name):
-    """Kiểm tra tín hiệu giao dịch và format tin nhắn cực kỳ gọn gàng"""
+    """Kiểm tra tín hiệu giao dịch và format tin nhắn gọn gàng"""
     if df is None or len(df) < 210:
         return
     
@@ -68,6 +75,7 @@ def check_signal(df, timeframe_name):
     
     prev_ema9 = float(prev['EMA9'])
     prev_ema21 = float(prev['EMA21'])
+    time_str = get_vn_time().strftime('%Y-%m-%d %H:%M:%S')
 
     # Điều kiện MUA (Buy)
     if price > ma200 and prev_ema9 <= prev_ema21 and ema9 > ema21 and rsi > 50:
@@ -81,7 +89,8 @@ def check_signal(df, timeframe_name):
             f"Entry: `{price:.2f}`\n"
             f"SL: `{sl:.2f}`\n"
             f"TP1: `{tp1:.2f}`\n"
-            f"TP2: `{tp2:.2f}`"
+            f"TP2: `{tp2:.2f}`\n"
+            f"⏰ `{time_str}`"
         )
         send_telegram_message(msg)
 
@@ -97,19 +106,21 @@ def check_signal(df, timeframe_name):
             f"Entry: `{price:.2f}`\n"
             f"SL: `{sl:.2f}`\n"
             f"TP1: `{tp1:.2f}`\n"
-            f"TP2: `{tp2:.2f}`"
+            f"TP2: `{tp2:.2f}`\n"
+            f"⏰ `{time_str}`"
         )
         send_telegram_message(msg)
 
 # --- KHỞI ĐỘNG BOT ---
-print("🚀 Gold Trading Bot (Clean Format) đang chạy...")
-send_telegram_message("🚀 *Gold Trading Bot (Giao diện gọn gàng)* đã được khởi động thành công!")
+print("🚀 Gold Trading Bot (VN Time) đang chạy...")
+init_time = get_vn_time().strftime('%Y-%m-%d %H:%M:%S')
+send_telegram_message(f"🚀 *Gold Trading Bot (Giờ VN)* đã khởi động thành công lúc `{init_time}`!")
 
 last_daily_report_date = None
 
 while True:
     try:
-        current_time = datetime.now()
+        current_time = get_vn_time()
         
         # 1. Quét khung M5
         df_m5 = fetch_data("5m")
@@ -121,7 +132,7 @@ while True:
         df_m15 = fetch_data("15m")
         check_signal(df_m15, "m15")
         
-        # 3. Báo cáo tổng kết cuối ngày lúc 23:59
+        # 3. Báo cáo tổng kết cuối ngày lúc 23:59 giờ VN
         if current_time.hour == 23 and current_time.minute >= 55:
             if last_daily_report_date != current_time.date():
                 summary_msg = (
