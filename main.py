@@ -46,10 +46,10 @@ def fetch_data(interval="5m"):
         return None
 
 def calculate_indicators(df):
-    """Tính toán EMA (9, 21), RSI (14) và MA 200"""
+    """Tính toán EMA (9, 21), RSI (14) và MA 50 làm bộ lọc xu hướng"""
     df['EMA9'] = df['Close'].ewm(span=9, adjust=False).mean()
     df['EMA21'] = df['Close'].ewm(span=21, adjust=False).mean()
-    df['MA200'] = df['Close'].rolling(window=200).mean()
+    df['MA50'] = df['Close'].rolling(window=50).mean() # Đổi bộ lọc sang MA 50
     
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
@@ -59,8 +59,8 @@ def calculate_indicators(df):
     return df
 
 def check_signal(df, timeframe_name):
-    """Kiểm tra tín hiệu giao dịch và format tên CAUTURONG"""
-    if df is None or len(df) < 210:
+    """Kiểm tra tín hiệu giao dịch với MA50"""
+    if df is None or len(df) < 60: # Cần tối thiểu >50 nến để tính MA50 chính xác
         return
     
     df = calculate_indicators(df)
@@ -70,15 +70,15 @@ def check_signal(df, timeframe_name):
     price = float(last['Close'])
     ema9 = float(last['EMA9'])
     ema21 = float(last['EMA21'])
-    ma200 = float(last['MA200'])
+    ma50 = float(last['MA50'])
     rsi = float(last['RSI'])
     
     prev_ema9 = float(prev['EMA9'])
     prev_ema21 = float(prev['EMA21'])
     time_str = get_vn_time().strftime('%Y-%m-%d %H:%M:%S')
 
-    # Điều kiện MUA (Buy)
-    if price > ma200 and prev_ema9 <= prev_ema21 and ema9 > ema21 and rsi > 50:
+    # Điều kiện MUA (Buy): Giá trên MA50 + EMA9 cắt lên EMA21 + RSI > 50
+    if price > ma50 and prev_ema9 <= prev_ema21 and ema9 > ema21 and rsi > 50:
         sl = price - SL_PIPS
         tp1 = price + (SL_PIPS * 1.0)
         tp2 = price + (SL_PIPS * 2.2)
@@ -94,8 +94,8 @@ def check_signal(df, timeframe_name):
         )
         send_telegram_message(msg)
 
-    # Điều kiện BÁN (Sell)
-    elif price < ma200 and prev_ema9 >= prev_ema21 and ema9 < ema21 and rsi < 50:
+    # Điều kiện BÁN (Sell): Giá dưới MA50 + EMA9 cắt xuống EMA21 + RSI < 50
+    elif price < ma50 and prev_ema9 >= prev_ema21 and ema9 < ema21 and rsi < 50:
         sl = price + SL_PIPS
         tp1 = price - (SL_PIPS * 1.0)
         tp2 = price - (SL_PIPS * 2.2)
@@ -112,9 +112,9 @@ def check_signal(df, timeframe_name):
         send_telegram_message(msg)
 
 # --- KHỞI ĐỘNG BOT ---
-print("🚀 Gold Trading Bot (CAUTURONG) đang chạy...")
+print("🚀 Gold Trading Bot (MA50 Filter) đang chạy...")
 init_time = get_vn_time().strftime('%Y-%m-%d %H:%M:%S')
-send_telegram_message(f"🚀 *Gold Trading Bot (CAUTURONG)* đã khởi động thành công lúc `{init_time}`!")
+send_telegram_message(f"🚀 *Gold Trading Bot (CAUTURONG - MA50)* đã khởi động thành công lúc `{init_time}`!")
 
 last_daily_report_date = None
 
@@ -138,7 +138,7 @@ while True:
                 summary_msg = (
                     f"📊 **BÁO CÁO TỔNG KẾT TRONG NGÀY**\n"
                     f"📅 Ngày: {current_time.strftime('%d/%m/%Y')}\n"
-                    f"✅ Hệ thống CAUTURONG chạy ổn định."
+                    f"✅ Hệ thống CAUTURONG (Bộ lọc MA50) chạy ổn định."
                 )
                 send_telegram_message(summary_msg)
                 last_daily_report_date = current_time.date()
