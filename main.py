@@ -17,7 +17,7 @@ RISK_PIPS = 6.0       # Biên độ rủi ro (độ rộng Stop Loss tính bằn
 
 # Cấu hình Telegram (Thay bằng Token và Chat ID thực tế của bạn)
 TELEGRAM_TOKEN = "8998633458:AAGhkWhDPNp-Iy8f96gyACYvSM1DV6NCNpk"
-TELEGRAM_CHAT_ID = "YOUR_TELEGRAM_CHAT_ID"
+TELEGRAM_CHAT_ID = "5931570040"
 
 # ==========================================
 # CÁC HÀM HỖ TRỢ
