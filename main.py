@@ -16,7 +16,7 @@ RSI_OVERSOLD = 30     # Ngưỡng quá bán
 RISK_PIPS = 6.0       # Biên độ rủi ro (độ rộng Stop Loss tính bằng giá vàng)
 
 # Cấu hình Telegram (Thay bằng Token và Chat ID thực tế của bạn)
-TELEGRAM_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+TELEGRAM_TOKEN = "8998633458:AAGhkWhDPNp-Iy8f96gyACYvSM1DV6NCNpk"
 TELEGRAM_CHAT_ID = "YOUR_TELEGRAM_CHAT_ID"
 
 # ==========================================
