@@ -43,9 +43,9 @@ def send_telegram_message(message):
         print(f"Lỗi gửi tin nhắn Telegram: {e}")
 
 def get_oil_report():
-    """Lấy dữ liệu và tính toán % thay đổi với màu sắc sinh động (Xanh/Đỏ)"""
+    """Lấy dữ liệu và tính toán % thay đổi"""
     try:
-        df = yf.download(SYMBOL, period="2d", interval="30m", progress=False)
+        df = yf.download(SYMBOL, period="3d", interval="30m", progress=False)
         if df.empty or len(df) < 10:
             return None
         if isinstance(df.columns, pd.MultiIndex):
@@ -61,24 +61,23 @@ def get_oil_report():
                 return round(pct, 2)
             return None
 
-        change_30m = calc_change(1)
         change_1h = calc_change(2)
         change_2h = calc_change(4)
         change_3h = calc_change(6)
         change_4h = calc_change(8)
 
-        # Tính % thay đổi trong ngày (so với giá Open của phiên hôm nay)
+        # Tính % thay đổi trong ngày so với giá ĐÓNG CỬA của ngày hôm trước
         today_date = get_vn_time().date()
-        df_today = df[df.index.date == today_date]
-        if not df_today.empty:
-            open_price_today = float(df_today['Open'].iloc[0])
-            change_day = round(((current_price - open_price_today) / open_price_today) * 100, 2)
+        df_prev = df[df.index.date < today_date]
+        if not df_prev.empty:
+            prev_day_close = float(df_prev['Close'].iloc[-1])
+            change_day = round(((current_price - prev_day_close) / prev_day_close) * 100, 2)
         else:
             change_day = 0.0
 
         time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
 
-        # Thiết kế giao diện sinh động hơn
+        # Thiết kế giao diện báo cáo
         msg = f"🛢️ **CHỢ GIÁ - DẦU THÔ (WTI) [CAUTURONG]**\n"
         msg += f"💵 Giá hiện tại: **{current_price:.2f}$**\n"
         msg += f"───────────────────\n"
@@ -91,8 +90,6 @@ def get_oil_report():
             else:
                 return f"🔴 Giảm `{val}%` (trong {label})\n"
 
-        if change_30m is not None:
-            msg += format_text(change_30m, "30 phút")
         if change_1h is not None:
             msg += format_text(change_1h, "1 giờ")
         if change_2h is not None:
@@ -112,7 +109,7 @@ def get_oil_report():
         print(f"Lỗi tính toán dữ liệu dầu: {e}")
         return None
 
-# --- VÒNG LẬP CHẠY BOT VỚI KHUNG GIỜ CỐ ĐỊNH ---
+# --- VÒNG LẬP CHẠY BOT VỚI KHUNG GIỜ MỚI (5:00 - 21:00) ---
 def run_bot():
     print("🚀 Oil Price Bot (CAUTURONG) đang chạy...")
     init_time = get_vn_time().strftime('%Y-%m-%d %H:%M:%S')
@@ -127,21 +124,19 @@ def run_bot():
             current_minute = now_vn.minute
             current_date = now_vn.date()
             
-            # Khung giờ hoạt động: Từ 5:00 sáng đến 20:30 tối
+            # Khung giờ hoạt động: Từ 5:00 sáng đến 21:00 tối
             is_after_start = (current_hour > 5) or (current_hour == 5 and current_minute >= 0)
-            is_before_end = (current_hour < 20) or (current_hour == 20 and current_minute <= 30)
+            is_before_end = (current_hour < 21) or (current_hour == 21 and current_minute <= 0)
             is_allowed_time = is_after_start and is_before_end
             
             if is_allowed_time:
-                # Bắt mốc phút từ 0-5 (cho giờ chẵn) hoặc 30-35 (cho mốc nửa tiếng)
+                # Bắt mốc phút từ 0 đến 5 của mỗi giờ (Tần suất 1 tiếng/lần)
                 if 0 <= current_minute <= 5:
-                    slot_name = f"{current_date}-{current_hour}-00"
-                elif 30 <= current_minute <= 35:
-                    slot_name = f"{current_date}-{current_hour}-30"
+                    slot_name = f"{current_date}-{current_hour}"
                 else:
                     slot_name = None
 
-                # Gửi tin nếu đúng khung giờ và chưa gửi trong slot đó
+                # Gửi tin nếu đúng khung giờ và chưa gửi trong slot giờ đó
                 if slot_name and last_sent_slot != slot_name:
                     print(f"Đang gửi báo cáo định kỳ lúc {current_hour}:{current_minute:02d}...")
                     report_msg = get_oil_report()
