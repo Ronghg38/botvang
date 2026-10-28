@@ -43,7 +43,7 @@ def send_telegram_message(message):
         print(f"Lỗi gửi tin nhắn Telegram: {e}")
 
 def get_oil_report():
-    """Lấy dữ liệu và tính toán phần trăm thay đổi giá dầu theo các mốc thời gian"""
+    """Lấy dữ liệu và tính toán % thay đổi với màu sắc sinh động (Xanh/Đỏ)"""
     try:
         df = yf.download(SYMBOL, period="2d", interval="30m", progress=False)
         if df.empty:
@@ -69,14 +69,18 @@ def get_oil_report():
 
         time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
 
+        # Thiết kế giao diện sinh động hơn
         msg = f"🛢️ **CHỢ GIÁ - DẦU THÔ (WTI)**\n"
-        msg += f"Giá hiện tại là `{current_price:.2f}$`\n"
+        msg += f"💵 Giá hiện tại: **{current_price:.2f}$**\n"
+        msg += f"───────────────────\n"
         
         def format_text(val, label):
             if val is None:
                 return ""
-            status = "tăng" if val >= 0 else "giảm"
-            return f"• Giá {status} `{abs(val)}%` trong vòng {label}\n"
+            if val >= 0:
+                return f"🟢 Tăng `+{val}%` (trong {label})\n"
+            else:
+                return f"🔴 Giảm `{val}%` (trong {label})\n"
 
         if change_30m is not None:
             msg += format_text(change_30m, "30 phút")
@@ -89,7 +93,8 @@ def get_oil_report():
         if change_4h is not None:
             msg += format_text(change_4h, "4 giờ")
             
-        msg += f"\n⏰ Cập nhật lúc: `{time_str}`"
+        msg += f"───────────────────\n"
+        msg += f"⏰ Cập nhật: `{time_str}`"
         return msg
 
     except Exception as e:
