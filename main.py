@@ -30,20 +30,34 @@ def send_telegram_message(message):
 
 def get_oil_price_report():
     try:
-        # Lấy dữ liệu lịch sử giá dầu thô WTI (CL=F)
+        # Lấy dữ liệu lịch sử giá dầu thô WTI (CL=F) với khoảng thời gian đủ lấy các nến 30p
         ticker = yf.Ticker("CL=F")
         df = ticker.history(period="2d", interval="30m")
         
-        if df.empty or len(df) < 2:
+        if df.empty or len(df) < 9:
             return "⚠️ Không thể lấy đủ dữ liệu giá dầu lúc này."
             
         current_price = df['Close'].iloc[-1]
         
-        # 1. Tính % thay đổi trong 30 phút qua
-        prev_price_30m = df['Close'].iloc[-2]
-        change_30m = ((current_price - prev_price_30m) / prev_price_30m) * 100
-        
-        # 2. Tính % thay đổi trong ngày (so với giá mở cửa phiên giao dịch hôm nay)
+        # Hàm phụ trợ tạo icon tăng/giảm
+        def format_change(val):
+            icon = "🟢" if val >= 0 else "🔴"
+            text = "Tăng" if val >= 0 else "Giảm"
+            return f"{icon} {text} {val:+.2f}%"
+
+        # Tính % thay đổi qua các mốc thời gian (mỗi nến 30 phút)
+        # - 30 phút trước: nến cách 1 kỳ
+        change_30m = ((current_price - df['Close'].iloc[-2]) / df['Close'].iloc[-2]) * 100
+        # - 1 giờ trước: nến cách 2 kỳ
+        change_1h = ((current_price - df['Close'].iloc[-3]) / df['Close'].iloc[-3]) * 100
+        # - 2 giờ trước: nến cách 5 kỳ
+        change_2h = ((current_price - df['Close'].iloc[-6]) / df['Close'].iloc[-6]) * 100
+        # - 3 giờ trước: nến cách 7 kỳ
+        change_3h = ((current_price - df['Close'].iloc[-8]) / df['Close'].iloc[-8]) * 100
+        # - 4 giờ trước: nến cách 9 kỳ
+        change_4h = ((current_price - df['Close'].iloc[-10]) / df['Close'].iloc[-10]) * 100
+
+        # Tính % thay đổi trong ngày (so với giá mở cửa phiên hôm nay)
         today_date = datetime.now(timezone(timedelta(hours=7))).date()
         df_today = df[df.index.date == today_date]
         
@@ -53,20 +67,17 @@ def get_oil_price_report():
         else:
             change_day = 0.0
 
-        def format_change(val):
-            icon = "🟢" if val >= 0 else "🔴"
-            text = "Tăng" if val >= 0 else "Giảm"
-            return f"{icon} {text} {val:+.2f}%"
-
-        str_30m = format_change(change_30m)
-        str_day = format_change(change_day)
-
         message = (
             f"🛢️ <b>CHỢ GIÁ - DẦU THÔ (WTI) [CAUTURONG]</b>\n"
             f"💰 Giá hiện tại: <b>{current_price:.2f}$</b>\n"
             f"----------------------------------\n"
-            f"{str_30m} (trong 30 phút)\n"
-            f"{str_day} (trong ngày)\n"
+            f"{format_change(change_30m)} (trong 30 phút)\n"
+            f"{format_change(change_1h)} (trong 1 giờ)\n"
+            f"{format_change(change_2h)} (trong 2 giờ)\n"
+            f"{format_change(change_3h)} (trong 3 giờ)\n"
+            f"{format_change(change_4h)} (trong 4 giờ)\n"
+            f"----------------------------------\n"
+            f"📊 <b>{format_change(change_day)} (trong ngày)</b>\n"
             f"----------------------------------\n"
             f"⏰ Cập nhật: {datetime.now(timezone(timedelta(hours=7))).strftime('%H:%M - %d/%m/%Y')}"
         )
@@ -87,7 +98,6 @@ def run_bot_schedule():
             current_minute = now_vn.minute
             
             # --- KHUNG GIỜ HOẠT ĐỘNG: Từ 5:00 sáng đến 20:30 tối ---
-            # Từ 5:00 đến trước 20:30 (tính đến mốc 20:30)
             is_after_start = (current_hour > 5) or (current_hour == 5 and current_minute >= 0)
             is_before_end = (current_hour < 20) or (current_hour == 20 and current_minute <= 30)
             is_allowed_time = is_after_start and is_before_end
