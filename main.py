@@ -30,7 +30,6 @@ def send_telegram_message(message):
 
 def get_oil_price_report():
     try:
-        # Lấy dữ liệu lịch sử giá dầu thô WTI (CL=F) với khoảng thời gian đủ lấy các nến 30p
         ticker = yf.Ticker("CL=F")
         df = ticker.history(period="2d", interval="30m")
         
@@ -39,25 +38,17 @@ def get_oil_price_report():
             
         current_price = df['Close'].iloc[-1]
         
-        # Hàm phụ trợ tạo icon tăng/giảm
         def format_change(val):
             icon = "🟢" if val >= 0 else "🔴"
             text = "Tăng" if val >= 0 else "Giảm"
             return f"{icon} {text} {val:+.2f}%"
 
-        # Tính % thay đổi qua các mốc thời gian (mỗi nến 30 phút)
-        # - 30 phút trước: nến cách 1 kỳ
         change_30m = ((current_price - df['Close'].iloc[-2]) / df['Close'].iloc[-2]) * 100
-        # - 1 giờ trước: nến cách 2 kỳ
         change_1h = ((current_price - df['Close'].iloc[-3]) / df['Close'].iloc[-3]) * 100
-        # - 2 giờ trước: nến cách 5 kỳ
         change_2h = ((current_price - df['Close'].iloc[-6]) / df['Close'].iloc[-6]) * 100
-        # - 3 giờ trước: nến cách 7 kỳ
         change_3h = ((current_price - df['Close'].iloc[-8]) / df['Close'].iloc[-8]) * 100
-        # - 4 giờ trước: nến cách 9 kỳ
         change_4h = ((current_price - df['Close'].iloc[-10]) / df['Close'].iloc[-10]) * 100
 
-        # Tính % thay đổi trong ngày (so với giá mở cửa phiên hôm nay)
         today_date = datetime.now(timezone(timedelta(hours=7))).date()
         df_today = df[df.index.date == today_date]
         
@@ -89,31 +80,44 @@ def run_bot_schedule():
     VN_TIMEZONE = timezone(timedelta(hours=7))
     print("🤖 Bot Báo Giá Dầu (CAUTURONG) đã khởi động thành công!")
     
-    last_sent_minute = -1
+    # Gửi ngay tin nhắn thông báo khởi động thành công lên Telegram
+    init_time = datetime.now(VN_TIMEZONE).strftime('%H:%M - %d/%m/%Y')
+    send_telegram_message(f"🚀 <b>Bot CAUTURONG đã khởi động lại thành công lúc {init_time}!</b>")
+
+    last_sent_slot = ""
 
     while True:
         try:
             now_vn = datetime.now(VN_TIMEZONE)
             current_hour = now_vn.hour
             current_minute = now_vn.minute
+            current_date = now_vn.date()
             
-            # --- KHUNG GIỜ HOẠT ĐỘNG: Từ 5:00 sáng đến 20:30 tối ---
+            # Khung giờ hoạt động: Từ 5:00 đến 20:30
             is_after_start = (current_hour > 5) or (current_hour == 5 and current_minute >= 0)
             is_before_end = (current_hour < 20) or (current_hour == 20 and current_minute <= 30)
             is_allowed_time = is_after_start and is_before_end
             
             if is_allowed_time:
-                # Cứ mỗi 30 phút (phút 0 hoặc phút 30) thì gửi tin
-                if current_minute in [0, 30] and current_minute != last_sent_minute:
+                # Gom nhóm mốc thời gian thành 2 khoảng: nửa đầu giờ (phút 0-5) hoặc nửa sau giờ (phút 30-35)
+                if 0 <= current_minute <= 5:
+                    slot_name = f"{current_date}-{current_hour}-00"
+                elif 30 <= current_minute <= 35:
+                    slot_name = f"{current_date}-{current_hour}-30"
+                else:
+                    slot_name = None
+
+                # Nếu đang nằm trong khung phút hợp lệ và chưa gửi trong slot này
+                if slot_name and last_sent_slot != slot_name:
                     print(f"Đang gửi báo cáo định kỳ lúc {current_hour}:{current_minute:02d}...")
                     report_msg = get_oil_price_report()
                     send_telegram_message(report_msg)
-                    last_sent_minute = current_minute
+                    last_sent_slot = slot_name
             else:
                 print(f"Ngoài giờ thông báo ({current_hour}:{current_minute:02d}). Bot đang nghỉ.")
 
-            # Kiểm tra lại sau mỗi 20 giây để bắt chuẩn xác mốc phút
-            time.sleep(20)
+            # Kiểm tra lại sau mỗi 30 giây
+            time.sleep(30)
             
         except Exception as e:
             print(f"Lỗi trong vòng lặp chính: {e}")
