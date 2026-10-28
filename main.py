@@ -3,8 +3,20 @@ import requests
 import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta, timezone
+from threading import Thread
+from flask import Flask
 
-# --- CẤU HÌNH THÔNG TIN ---
+# --- CẤU HÌNH WEB SERVER CHO RENDER ---
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Oil Price Bot (CAUTURONG) is running 24/7!"
+
+def run_web():
+    app.run(host='0.0.0.0', port=10000)
+
+# --- CẤU HÌNH THÔNG TIN BOT ---
 TELEGRAM_TOKEN = "8234059775:AAHk8kv9ruTGV_qsGbFXC7SgTxfRwWOO1BI"
 TELEGRAM_CHAT_ID = "5931570040"
 SYMBOL = "CL=F"  # Mã dầu thô WTI trên Yahoo Finance
@@ -33,7 +45,6 @@ def send_telegram_message(message):
 def get_oil_report():
     """Lấy dữ liệu và tính toán phần trăm thay đổi giá dầu theo các mốc thời gian"""
     try:
-        # Lấy dữ liệu khung 30 phút để tính toán các mốc thời gian gần
         df = yf.download(SYMBOL, period="2d", interval="30m", progress=False)
         if df.empty:
             return None
@@ -43,8 +54,6 @@ def get_oil_report():
         closes = df['Close']
         current_price = float(closes.iloc[-1])
         
-        # Hàm tính % thay đổi so với N nến trước (mỗi nến 30 phút)
-        # n = 1 -> 30 phút, n = 2 -> 1 giờ, n = 4 -> 2 giờ, n = 6 -> 3 giờ, n = 8 -> 4 giờ
         def calc_change(n):
             if len(closes) > n:
                 past_price = float(closes.iloc[-1 - n])
@@ -60,7 +69,6 @@ def get_oil_report():
 
         time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
 
-        # Xây dựng nội dung tin nhắn giống hệt phong cách mẫu trong video
         msg = f"🛢️ **CHỢ GIÁ - DẦU THÔ (WTI)**\n"
         msg += f"Giá hiện tại là `{current_price:.2f}$`\n"
         
@@ -88,21 +96,29 @@ def get_oil_report():
         print(f"Lỗi tính toán dữ liệu dầu: {e}")
         return None
 
-# --- KHỞI ĐỘNG BOT ---
-print("🚀 Oil Price Bot (CAUTURONG) đang chạy...")
-init_time = get_vn_time().strftime('%Y-%m-%d %H:%M:%S')
-send_telegram_message(f"🚀 *Bot Báo Giá Dầu Thô (CAUTURONG)* đã khởi động thành công lúc `{init_time}`!")
+# --- VÒNG LẬP CHẠY BOT ---
+def run_bot():
+    print("🚀 Oil Price Bot (CAUTURONG) đang chạy...")
+    init_time = get_vn_time().strftime('%Y-%m-%d %H:%M:%S')
+    send_telegram_message(f"🚀 *Bot Báo Giá Dầu Thô (CAUTURONG)* đã khởi động thành công lúc `{init_time}`!")
 
-# Vòng lặp gửi báo cáo định kỳ (Ví dụ: Cứ mỗi 30 phút gửi 1 lần)
-while True:
-    try:
-        report_msg = get_oil_report()
-        if report_msg:
-            send_telegram_message(report_msg)
-        
-        # Nghỉ 30 phút (1800 giây) rồi quét và báo cáo tiếp
-        time.sleep(1800)
-        
-    except Exception as e:
-        print(f"Lỗi vòng lặp báo cáo giá dầu: {e}")
-        time.sleep(60)
+    while True:
+        try:
+            report_msg = get_oil_report()
+            if report_msg:
+                send_telegram_message(report_msg)
+            
+            # Báo cáo định kỳ mỗi 30 phút (1800 giây)
+            time.sleep(1800)
+            
+        except Exception as e:
+            print(f"Lỗi vòng lặp báo cáo giá dầu: {e}")
+            time.sleep(60)
+
+# Khởi chạy Web server và Bot song song
+if __name__ == '__main__':
+    t = Thread(target=run_bot)
+    t.daemon = True
+    t.start()
+    
+    run_web()
