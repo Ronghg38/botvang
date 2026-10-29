@@ -42,7 +42,7 @@ def send_telegram_message(message):
         print(f"Lỗi gửi tin nhắn Telegram: {e}")
 
 def get_single_oil_report(symbol, title):
-    """Lấy dữ liệu và tính toán chi tiết cho từng loại dầu với bố cục rõ ràng"""
+    """Lấy dữ liệu và tính toán với mốc mở cửa trong ngày cố định từ 05:00 sáng"""
     try:
         df = yf.download(symbol, period="5d", interval="30m", progress=False)
         if df.empty or len(df) < 10:
@@ -73,12 +73,20 @@ def get_single_oil_report(symbol, title):
         pct_3h, time_3h = get_change_and_time(3)
         pct_4h, time_4h = get_change_and_time(4)
 
+        # Cố định mốc mở cửa trong ngày tính từ 05:00 sáng ngày hiện tại
         today_date = get_vn_time().date()
         df_today = df[df.index.date == today_date]
         
         if not df_today.empty:
-            open_price_today = float(df_today['Open'].iloc[0])
-            open_time_str = df_today.index[0].strftime('%H:%M %d/%m')
+            # Lọc tìm nến gần mốc 05:00 sáng nhất trong ngày
+            df_morning = df_today[df_today.index.hour >= 5]
+            if not df_morning.empty:
+                open_price_today = float(df_morning['Open'].iloc[0])
+                open_time_str = df_morning.index[0].strftime('%H:%M %d/%m')
+            else:
+                open_price_today = float(df_today['Open'].iloc[0])
+                open_time_str = df_today.index[0].strftime('%H:%M %d/%m')
+                
             change_day = round(((current_price - open_price_today) / open_price_today) * 100, 2)
             day_label = f"Mở cửa lúc {open_time_str}"
         else:
@@ -141,7 +149,6 @@ def check_telegram_commands():
                     message = update.get("message", {})
                     text = message.get("text", "").strip().lower()
                     
-                    # Nếu bạn gõ chữ 'xem' trong chat, bot sẽ lập tức lấy dữ liệu thực tế gửi ngay
                     if text == "xem":
                         print("Nhận được từ khóa 'xem' từ Telegram. Đang cập nhật dữ liệu thực tế...")
                         report_msg = get_full_report()
@@ -157,7 +164,6 @@ def run_bot():
     init_time = get_vn_time().strftime('%Y-%m-%d %H:%M:%S')
     send_telegram_message(f"🚀 *Bot Báo Giá Dầu Thô (CAUTURONG)* đã khởi động thành công lúc `{init_time}`!")
 
-    # Khởi chạy luồng phụ lắng nghe từ khóa 'xem'
     cmd_thread = Thread(target=check_telegram_commands)
     cmd_thread.daemon = True
     cmd_thread.start()
