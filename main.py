@@ -43,14 +43,21 @@ def send_telegram_message(message):
         print(f"Lỗi gửi tin nhắn Telegram: {e}")
 
 def get_oil_report():
-    """Lấy dữ liệu và tính toán % thay đổi"""
+    """Lấy dữ liệu và tính toán % thay đổi chuẩn theo múi giờ VN"""
     try:
-        df = yf.download(SYMBOL, period="3d", interval="30m", progress=False)
+        df = yf.download(SYMBOL, period="5d", interval="30m", progress=False)
         if df.empty or len(df) < 10:
             return None
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.droplevel(1)
             
+        # Quy đổi index của dữ liệu về múi giờ Việt Nam để so sánh ngày chính xác
+        df.index = pd.to_datetime(df.index)
+        if df.index.tz is not None:
+            df.index = df.index.tz_convert(VN_TZ)
+        else:
+            df.index = df.index.tz_localize('UTC').tz_convert(VN_TZ)
+
         closes = df['Close']
         current_price = float(closes.iloc[-1])
         
@@ -66,7 +73,7 @@ def get_oil_report():
         change_3h = calc_change(6)
         change_4h = calc_change(8)
 
-        # Tính % thay đổi trong ngày so với giá ĐÓNG CỬA của ngày hôm trước
+        # Tính % thay đổi trong ngày so với giá ĐÓNG CỬA ngày hôm trước (theo múi giờ VN)
         today_date = get_vn_time().date()
         df_prev = df[df.index.date < today_date]
         if not df_prev.empty:
@@ -86,18 +93,18 @@ def get_oil_report():
             if val is None:
                 return ""
             if val >= 0:
-                return f"🟢 Tăng `+{val}%` (trong {label})\n"
+                return f"🟢 Tăng `+{val}%` ({label})\n"
             else:
-                return f"🔴 Giảm `{val}%` (trong {label})\n"
+                return f"🔴 Giảm `{val}%` ({label})\n"
 
         if change_1h is not None:
-            msg += format_text(change_1h, "1 giờ")
+            msg += format_text(change_1h, "trong 1 giờ")
         if change_2h is not None:
-            msg += format_text(change_2h, "2 giờ")
+            msg += format_text(change_2h, "trong 2 giờ")
         if change_3h is not None:
-            msg += format_text(change_3h, "3 giờ")
+            msg += format_text(change_3h, "trong 3 giờ")
         if change_4h is not None:
-            msg += format_text(change_4h, "4 giờ")
+            msg += format_text(change_4h, "trong 4 giờ")
             
         msg += f"───────────────────\n"
         msg += format_text(change_day, "trong ngày")
@@ -109,7 +116,7 @@ def get_oil_report():
         print(f"Lỗi tính toán dữ liệu dầu: {e}")
         return None
 
-# --- VÒNG LẬP CHẠY BOT VỚI KHUNG GIỜ MỚI (5:00 - 21:00) ---
+# --- VÒNG LẬP CHẠY BOT (5:00 - 21:00, Tần suất 1 tiếng/lần) ---
 def run_bot():
     print("🚀 Oil Price Bot (CAUTURONG) đang chạy...")
     init_time = get_vn_time().strftime('%Y-%m-%d %H:%M:%S')
