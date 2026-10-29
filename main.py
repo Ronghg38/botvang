@@ -19,7 +19,6 @@ def run_web():
 # --- CẤU HÌNH THÔNG TIN BOT ---
 TELEGRAM_TOKEN = "8234059775:AAHk8kv9ruTGV_qsGbFXC7SgTxfRwWOO1BI"
 TELEGRAM_CHAT_ID = "5931570040"
-SYMBOL = "CL=F"  # Mã dầu thô WTI trên Yahoo Finance
 
 # Múi giờ Việt Nam (UTC+7)
 VN_TZ = timezone(timedelta(hours=7))
@@ -42,16 +41,15 @@ def send_telegram_message(message):
     except Exception as e:
         print(f"Lỗi gửi tin nhắn Telegram: {e}")
 
-def get_oil_report():
-    """Lấy dữ liệu và tính toán % thay đổi chuẩn theo múi giờ VN"""
+def get_single_oil_report(symbol, title):
+    """Lấy dữ liệu và tính toán chi tiết cho từng loại dầu với bố cục rõ ràng"""
     try:
-        df = yf.download(SYMBOL, period="5d", interval="30m", progress=False)
+        df = yf.download(symbol, period="5d", interval="30m", progress=False)
         if df.empty or len(df) < 10:
             return None
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.droplevel(1)
             
-        # Quy đổi index của dữ liệu về múi giờ Việt Nam để so sánh ngày chính xác
         df.index = pd.to_datetime(df.index)
         if df.index.tz is not None:
             df.index = df.index.tz_convert(VN_TZ)
@@ -60,61 +58,73 @@ def get_oil_report():
 
         closes = df['Close']
         current_price = float(closes.iloc[-1])
-        
-        def calc_change(n):
-            if len(closes) > n:
-                past_price = float(closes.iloc[-1 - n])
-                pct = ((current_price - past_price) / past_price) * 100
-                return round(pct, 2)
-            return None
+        latest_time = df.index[-1]
 
-        change_1h = calc_change(2)
-        change_2h = calc_change(4)
-        change_3h = calc_change(6)
-        change_4h = calc_change(8)
+        def get_change_and_time(hours):
+            target_time = latest_time - timedelta(hours=hours)
+            idx = df.index.get_indexer([target_time], method='nearest')[0]
+            past_price = float(closes.iloc[idx])
+            past_time_str = df.index[idx].strftime('%H:%M %d/%m')
+            pct = ((current_price - past_price) / past_price) * 100
+            return round(pct, 2), past_time_str
 
-        # Tính % thay đổi trong ngày so với giá ĐÓNG CỬA ngày hôm trước (theo múi giờ VN)
+        pct_1h, time_1h = get_change_and_time(1)
+        pct_2h, time_2h = get_change_and_time(2)
+        pct_3h, time_3h = get_change_and_time(3)
+        pct_4h, time_4h = get_change_and_time(4)
+
         today_date = get_vn_time().date()
-        df_prev = df[df.index.date < today_date]
-        if not df_prev.empty:
-            prev_day_close = float(df_prev['Close'].iloc[-1])
-            change_day = round(((current_price - prev_day_close) / prev_day_close) * 100, 2)
+        df_today = df[df.index.date == today_date]
+        
+        if not df_today.empty:
+            open_price_today = float(df_today['Open'].iloc[0])
+            open_time_str = df_today.index[0].strftime('%H:%M %d/%m')
+            change_day = round(((current_price - open_price_today) / open_price_today) * 100, 2)
+            day_label = f"Mở cửa lúc {open_time_str}"
         else:
-            change_day = 0.0
+            df_prev = df[df.index.date < today_date]
+            prev_day_close = float(df_prev['Close'].iloc[-1]) if not df_prev.empty else current_price
+            change_day = round(((current_price - prev_day_close) / prev_day_close) * 100, 2)
+            day_label = "So với hôm trước"
 
-        time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
+        def format_line(val, hours_label, t_str):
+            icon = "🟢" if val >= 0 else "🔴"
+            sign = "+" if val >= 0 else ""
+            return f"{icon} `{sign}{val}%` | {hours_label} ({t_str})\n"
 
-        # Thiết kế giao diện báo cáo
-        msg = f"🛢️ **CHỢ GIÁ - DẦU THÔ (WTI) [CAUTURONG]**\n"
+        # Bố cục phân chia chi tiết từng phần
+        msg = f"🛢️ *{title}*\n"
         msg += f"💵 Giá hiện tại: **{current_price:.2f}$**\n"
         msg += f"───────────────────\n"
+        msg += f"• Biến động theo giờ:\n"
+        msg += format_line(pct_1h, "1 giờ", time_1h)
+        msg += format_line(pct_2h, "2 giờ", time_2h)
+        msg += format_line(pct_3h, "3 giờ", time_3h)
+        msg += format_line(pct_4h, "4 giờ", time_4h)
+        msg += f"───────────────────\n"
         
-        def format_text(val, label):
-            if val is None:
-                return ""
-            if val >= 0:
-                return f"🟢 Tăng `+{val}%` ({label})\n"
-            else:
-                return f"🔴 Giảm `{val}%` ({label})\n"
-
-        if change_1h is not None:
-            msg += format_text(change_1h, "trong 1 giờ")
-        if change_2h is not None:
-            msg += format_text(change_2h, "trong 2 giờ")
-        if change_3h is not None:
-            msg += format_text(change_3h, "trong 3 giờ")
-        if change_4h is not None:
-            msg += format_text(change_4h, "trong 4 giờ")
-            
-        msg += f"───────────────────\n"
-        msg += format_text(change_day, "trong ngày")
-        msg += f"───────────────────\n"
-        msg += f"⏰ Cập nhật: `{time_str}`"
+        day_icon = "🟢" if change_day >= 0 else "🔴"
+        day_sign = "+" if change_day >= 0 else ""
+        msg += f"📊 Biến động trong ngày:\n"
+        msg += f"{day_icon} `{day_sign}{change_day}%` ({day_label})\n"
+        
         return msg
 
     except Exception as e:
-        print(f"Lỗi tính toán dữ liệu dầu: {e}")
+        print(f"Lỗi lấy dữ liệu {title}: {e}")
+        return f"🛢️ *{title}*: ⚠️ Không thể lấy dữ liệu lúc này.\n"
+
+def get_full_report():
+    wti_msg = get_single_oil_report("CL=F", "DẦU THÔ WTI (CAUTURONG)")
+    brent_msg = get_single_oil_report("BZ=F", "DẦU THÔ BRENT (CAUTURONG)")
+    
+    if not wti_msg and not brent_msg:
         return None
+        
+    time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
+    
+    full_msg = f"{wti_msg}\n═══════════════════\n{brent_msg}\n═══════════════════\n⏰ Cập nhật lúc: `{time_str}`"
+    return full_msg
 
 # --- VÒNG LẬP CHẠY BOT (5:00 - 21:00, Tần suất 1 tiếng/lần) ---
 def run_bot():
@@ -131,36 +141,31 @@ def run_bot():
             current_minute = now_vn.minute
             current_date = now_vn.date()
             
-            # Khung giờ hoạt động: Từ 5:00 sáng đến 21:00 tối
             is_after_start = (current_hour > 5) or (current_hour == 5 and current_minute >= 0)
             is_before_end = (current_hour < 21) or (current_hour == 21 and current_minute <= 0)
             is_allowed_time = is_after_start and is_before_end
             
             if is_allowed_time:
-                # Bắt mốc phút từ 0 đến 5 của mỗi giờ (Tần suất 1 tiếng/lần)
                 if 0 <= current_minute <= 5:
                     slot_name = f"{current_date}-{current_hour}"
                 else:
                     slot_name = None
 
-                # Gửi tin nếu đúng khung giờ và chưa gửi trong slot giờ đó
                 if slot_name and last_sent_slot != slot_name:
                     print(f"Đang gửi báo cáo định kỳ lúc {current_hour}:{current_minute:02d}...")
-                    report_msg = get_oil_report()
+                    report_msg = get_full_report()
                     if report_msg:
                         send_telegram_message(report_msg)
                     last_sent_slot = slot_name
             else:
                 print(f"Ngoài giờ thông báo ({current_hour}:{current_minute:02d}). Bot đang nghỉ.")
 
-            # Kiểm tra lại mỗi 30 giây
             time.sleep(30)
             
         except Exception as e:
             print(f"Lỗi vòng lặp báo cáo giá dầu: {e}")
             time.sleep(60)
 
-# Khởi chạy Web server và Bot song song
 if __name__ == '__main__':
     t = Thread(target=run_bot)
     t.daemon = True
