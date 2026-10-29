@@ -92,7 +92,6 @@ def get_single_oil_report(symbol, title):
             sign = "+" if val >= 0 else ""
             return f"{icon} `{sign}{val}%` | {hours_label} ({t_str})\n"
 
-        # Bố cục phân chia chi tiết từng phần
         msg = f"🛢️ *{title}*\n"
         msg += f"💵 Giá hiện tại: **{current_price:.2f}$**\n"
         msg += f"───────────────────\n"
@@ -126,11 +125,42 @@ def get_full_report():
     full_msg = f"{wti_msg}\n═══════════════════\n{brent_msg}\n═══════════════════\n⏰ Cập nhật lúc: `{time_str}`"
     return full_msg
 
+# --- HÀM LẮNG NGHE LỆNH CHAT TỪ TELEGRAM (Gõ 'xem' để lấy dữ liệu thực tế) ---
+def check_telegram_commands():
+    last_update_id = 0
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
+    while True:
+        try:
+            params = {"offset": last_update_id + 1, "timeout": 30}
+            response = requests.get(url, params=params, timeout=35)
+            data = response.json()
+            
+            if data.get("ok") and data.get("result"):
+                for update in data["result"]:
+                    last_update_id = update["update_id"]
+                    message = update.get("message", {})
+                    text = message.get("text", "").strip().lower()
+                    
+                    # Nếu bạn gõ chữ 'xem' trong chat, bot sẽ lập tức lấy dữ liệu thực tế gửi ngay
+                    if text == "xem":
+                        print("Nhận được từ khóa 'xem' từ Telegram. Đang cập nhật dữ liệu thực tế...")
+                        report_msg = get_full_report()
+                        if report_msg:
+                            send_telegram_message("⚡ *BẢN TIN CẬP NHẬT THỰC TẾ*\n\n" + report_msg)
+        except Exception as e:
+            print(f"Lỗi đọc lệnh Telegram: {e}")
+            time.sleep(5)
+
 # --- VÒNG LẬP CHẠY BOT (5:00 - 21:00, Tần suất 1 tiếng/lần) ---
 def run_bot():
     print("🚀 Oil Price Bot (CAUTURONG) đang chạy...")
     init_time = get_vn_time().strftime('%Y-%m-%d %H:%M:%S')
     send_telegram_message(f"🚀 *Bot Báo Giá Dầu Thô (CAUTURONG)* đã khởi động thành công lúc `{init_time}`!")
+
+    # Khởi chạy luồng phụ lắng nghe từ khóa 'xem'
+    cmd_thread = Thread(target=check_telegram_commands)
+    cmd_thread.daemon = True
+    cmd_thread.start()
 
     last_sent_slot = ""
 
