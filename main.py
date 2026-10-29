@@ -20,8 +20,8 @@ def run_web():
 TELEGRAM_TOKEN = "8234059775:AAHk8kv9ruTGV_qsGbFXC7SgTxfRwWOO1BI"
 TELEGRAM_CHAT_ID = "5931570040"
 
-# Biến độ lệch giá vàng (sẽ cân chỉnh chính xác sau khi thị trường đóng cửa)
-GOLD_OFFSET = 0.0 
+# 🛠️ ĐỘ LỆCH GIÁ VÀNG SO VỚI TRADINGVIEW (Đã tinh chỉnh theo thực tế)
+GOLD_OFFSET = -10.36 
 
 # Múi giờ Việt Nam (UTC+7)
 VN_TZ = timezone(timedelta(hours=7))
@@ -45,7 +45,7 @@ def send_telegram_message(message):
         print(f"Lỗi gửi tin nhắn Telegram: {e}")
 
 def get_single_asset_report(symbol, title):
-    """Lấy dữ liệu và tính toán với mốc mở cửa trong ngày cố định từ 05:00 sáng"""
+    """Lấy dữ liệu và tính toán với mốc mở cửa cố định từ 05:00 sáng VN"""
     try:
         df = yf.download(symbol, period="5d", interval="30m", progress=False)
         if df.empty or len(df) < 10:
@@ -62,6 +62,7 @@ def get_single_asset_report(symbol, title):
         closes = df['Close']
         current_price = float(closes.iloc[-1])
         
+        # Áp dụng offset cho Vàng nếu có chênh lệch với TradingView
         if symbol == "GC=F":
             current_price += GOLD_OFFSET
 
@@ -82,24 +83,28 @@ def get_single_asset_report(symbol, title):
         pct_3h, time_3h = get_change_and_time(3)
         pct_4h, time_4h = get_change_and_time(4)
 
-        today_date = get_vn_time().date()
-        df_today = df[df.index.date == today_date]
+        # --- LOGIC CỐ ĐỊNH MỐC MỞ CỬA LÚC 05:00 SÁNG GIỜ VIỆT NAM ---
+        now_vn = get_vn_time()
+        today_date = now_vn.date()
         
-        if not df_today.empty:
-            df_morning = df_today[df_today.index.hour >= 5]
-            if not df_morning.empty:
-                open_price_today = float(df_morning['Open'].iloc[0])
-                open_time_str = df_morning.index[0].strftime('%H:%M %d/%m')
-            else:
-                open_price_today = float(df_today['Open'].iloc[0])
-                open_time_str = df_today.index[0].strftime('%H:%M %d/%m')
-                
+        # Tạo mốc 05:00 sáng hôm nay theo giờ VN
+        morning_5am_today = datetime(today_date.year, today_date.month, today_date.day, 5, 0, 0, tzinfo=VN_TZ)
+        
+        # Nếu thời điểm hiện tại trước 05:00 sáng, mốc tham chiếu sẽ lấy từ 05:00 sáng ngày hôm trước
+        if now_vn < morning_5am_today:
+            morning_5am_today = morning_5am_today - timedelta(days=1)
+
+        df_since_5am = df[df.index >= morning_5am_today]
+
+        if not df_since_5am.empty:
+            open_price_today = float(df_since_5am['Open'].iloc[0])
+            open_time_str = df_since_5am.index[0].strftime('%H:%M %d/%m')
             if symbol == "GC=F":
                 open_price_today += GOLD_OFFSET
-                
             change_day = round(((current_price - open_price_today) / open_price_today) * 100, 2)
             day_label = f"Mở cửa lúc {open_time_str}"
         else:
+            # Fallback nếu chưa có dữ liệu qua 05:00
             df_prev = df[df.index.date < today_date]
             prev_day_close = float(df_prev['Close'].iloc[-1]) if not df_prev.empty else current_price
             if symbol == "GC=F":
@@ -135,7 +140,7 @@ def get_single_asset_report(symbol, title):
         print(f"Lỗi lấy dữ liệu {title}: {e}")
         return f"📌 *{title}*: ⚠️ Không thể lấy dữ liệu lúc này.\n"
 
-# Báo cáo riêng cho Dầu (Dùng cho cả lịch tự động mỗi tiếng và lệnh 'xem')
+# Báo cáo riêng cho Dầu (Dùng cho lịch tự động và lệnh 'xem')
 def get_oil_report():
     wti_msg = get_single_asset_report("CL=F", "DẦU THÔ WTI (CAUTURONG)")
     brent_msg = get_single_asset_report("BZ=F", "DẦU THÔ BRENT (CAUTURONG)")
@@ -144,7 +149,7 @@ def get_oil_report():
     time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
     return f"{wti_msg}\n═══════════════════\n{brent_msg}\n═══════════════════\n⏰ Cập nhật lúc: `{time_str}`"
 
-# Báo cáo riêng cho Vàng (Chỉ hiện khi gõ 'vang')
+# Báo cáo riêng cho Vàng (Chỉ khi gõ 'vang')
 def get_gold_report():
     gold_msg = get_single_asset_report("GC=F", "VÀNG THẾ GIỚI (CAUTURONG)")
     if not gold_msg:
@@ -215,7 +220,7 @@ def run_bot():
 
                 if slot_name and last_sent_slot != slot_name:
                     print(f"Đang gửi báo cáo định kỳ lúc {current_hour}:{current_minute:02d}...")
-                    report_msg = get_oil_report() # Định kỳ tự động chỉ gửi Dầu
+                    report_msg = get_oil_report()
                     if report_msg:
                         send_telegram_message(report_msg)
                     last_sent_slot = slot_name
