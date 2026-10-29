@@ -73,12 +73,10 @@ def get_single_oil_report(symbol, title):
         pct_3h, time_3h = get_change_and_time(3)
         pct_4h, time_4h = get_change_and_time(4)
 
-        # Cố định mốc mở cửa trong ngày tính từ 05:00 sáng ngày hiện tại
         today_date = get_vn_time().date()
         df_today = df[df.index.date == today_date]
         
         if not df_today.empty:
-            # Lọc tìm nến gần mốc 05:00 sáng nhất trong ngày
             df_morning = df_today[df_today.index.hour >= 5]
             if not df_morning.empty:
                 open_price_today = float(df_morning['Open'].iloc[0])
@@ -121,16 +119,33 @@ def get_single_oil_report(symbol, title):
         print(f"Lỗi lấy dữ liệu {title}: {e}")
         return f"🛢️ *{title}*: ⚠️ Không thể lấy dữ liệu lúc này.\n"
 
-def get_full_report():
+def get_full_report(is_thursday_15h=False):
     wti_msg = get_single_oil_report("CL=F", "DẦU THÔ WTI (CAUTURONG)")
     brent_msg = get_single_oil_report("BZ=F", "DẦU THÔ BRENT (CAUTURONG)")
     
     if not wti_msg and not brent_msg:
         return None
         
-    time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
+    now_vn = get_vn_time()
+    time_str = now_vn.strftime('%H:%M - %d/%m/%Y')
     
-    full_msg = f"{wti_msg}\n═══════════════════\n{brent_msg}\n═══════════════════\n⏰ Cập nhật lúc: `{time_str}`"
+    full_msg = f"{wti_msg}\n═══════════════════\n{brent_msg}\n═══════════════════\n"
+    
+    # Nếu đúng 15h thứ 5, bot sẽ kèm theo khung thông báo giá bán lẻ trong nước
+    if is_thursday_15h:
+        full_msg += f"🚨 **THÔNG BÁO ĐIỀU HÀNH GIÁ XĂNG DẦU TRONG NƯỚC**\n"
+        full_msg += f"*(Cập nhật lúc 15:00 Thứ Năm)*\n\n"
+        full_msg += f"📍 **Vùng 1:**\n"
+        full_msg += f"• Xăng RON 95-V: `[Cập nhật giá]`\n"
+        full_msg += f"• Xăng E5 RON 92: `[Cập nhật giá]`\n"
+        full_msg += f"• Dầu DO 0.05S: `[Cập nhật giá]`\n\n"
+        full_msg += f"📍 **Vùng 2:**\n"
+        full_msg += f"• Xăng RON 95-V: `[Cập nhật giá]`\n"
+        full_msg += f"• Xăng E5 RON 92: `[Cập nhật giá]`\n"
+        full_msg += f"• Dầu DO 0.05S: `[Cập nhật giá]`\n"
+        full_msg += f"───────────────────\n"
+        
+    full_msg += f"⏰ Cập nhật lúc: `{time_str}`"
     return full_msg
 
 # --- HÀM LẮNG NGHE LỆNH CHAT TỪ TELEGRAM (Gõ 'xem' để lấy dữ liệu thực tế) ---
@@ -151,7 +166,10 @@ def check_telegram_commands():
                     
                     if text == "xem":
                         print("Nhận được từ khóa 'xem' từ Telegram. Đang cập nhật dữ liệu thực tế...")
-                        report_msg = get_full_report()
+                        # Kiểm tra xem lúc gõ 'xem' có phải chiều thứ 5 không để hiển thị khung giá nội địa
+                        now_vn = get_vn_time()
+                        is_thu_5_15h = (now_vn.weekday() == 3 and now_vn.hour == 15)
+                        report_msg = get_full_report(is_thursday_15h=is_thu_5_15h)
                         if report_msg:
                             send_telegram_message("⚡ *BẢN TIN CẬP NHẬT THỰC TẾ*\n\n" + report_msg)
         except Exception as e:
@@ -169,6 +187,7 @@ def run_bot():
     cmd_thread.start()
 
     last_sent_slot = ""
+    last_thursday_alert = ""
 
     while True:
         try:
@@ -176,20 +195,25 @@ def run_bot():
             current_hour = now_vn.hour
             current_minute = now_vn.minute
             current_date = now_vn.date()
+            current_weekday = now_vn.weekday() # 3 là Thứ Năm
             
             is_after_start = (current_hour > 5) or (current_hour == 5 and current_minute >= 0)
             is_before_end = (current_hour < 21) or (current_hour == 21 and current_minute <= 0)
             is_allowed_time = is_after_start and is_before_end
             
             if is_allowed_time:
+                # 1. Kiểm tra mốc định kỳ hàng giờ (phút 0-5)
                 if 0 <= current_minute <= 5:
                     slot_name = f"{current_date}-{current_hour}"
                 else:
                     slot_name = None
 
                 if slot_name and last_sent_slot != slot_name:
+                    # Kiểm tra nếu đúng Thứ Năm và đúng 15h chiều thì gài bảng giá nội địa vào tin nhắn
+                    is_thu_5_15h = (current_weekday == 3 and current_hour == 15)
+                    
                     print(f"Đang gửi báo cáo định kỳ lúc {current_hour}:{current_minute:02d}...")
-                    report_msg = get_full_report()
+                    report_msg = get_full_report(is_thursday_15h=is_thu_5_15h)
                     if report_msg:
                         send_telegram_message(report_msg)
                     last_sent_slot = slot_name
