@@ -45,7 +45,7 @@ def send_telegram_message(message):
         print(f"Lỗi gửi tin nhắn Telegram: {e}")
 
 def get_single_asset_report(symbol, title):
-    """Lấy dữ liệu và tính toán với mốc giờ lùi tuyến tính chuẩn xác tuyệt đối"""
+    """Lấy dữ liệu và tính toán bám sát thực tế nến của sàn"""
     try:
         df = yf.download(symbol, period="5d", interval="30m", progress=False)
         if df.empty or len(df) < 10:
@@ -65,27 +65,27 @@ def get_single_asset_report(symbol, title):
         if symbol == "GC=F":
             current_price += GOLD_OFFSET
 
-        # Lấy thời gian thực tế hiện tại tại thời điểm bot chạy
-        now_vn = get_vn_time()
-
-        # --- HÀM TÍNH BIẾN ĐỘNG THEO CÁC MỐC GIỜ TRÒN TUYẾN TÍNH ---
-        def get_exact_linear_change(hours_back):
-            # Lùi chính xác 1h, 2h, 3h, 4h từ thời điểm hiện tại
-            target_time = now_vn - timedelta(hours=hours_back)
-            idx = df.index.get_indexer([target_time], method='nearest')[0]
-            past_price = float(closes.iloc[idx])
+        # --- HÀM TÍNH BIẾN ĐỘNG DỰA TRÊN SỐ NẾN THỰC TẾ CỦA SÀN ---
+        def get_bar_based_change(hours_back):
+            # Mỗi 1 giờ ứng với 2 nến 30 phút. Tính vị trí lùi từ nến mới nhất (-1)
+            target_idx = len(closes) - 1 - (hours_back * 2)
+            if target_idx < 0:
+                target_idx = 0
+            
+            past_price = float(closes.iloc[target_idx])
             if symbol == "GC=F":
                 past_price += GOLD_OFFSET
-            past_time_str = df.index[idx].strftime('%H:%M %d/%m')
+            past_time_str = df.index[target_idx].strftime('%H:%M %d/%m')
             pct = ((current_price - past_price) / past_price) * 100
             return round(pct, 2), past_time_str
 
-        pct_1h, time_1h = get_exact_linear_change(1)
-        pct_2h, time_2h = get_exact_linear_change(2)
-        pct_3h, time_3h = get_exact_linear_change(3)
-        pct_4h, time_4h = get_exact_linear_change(4)
+        pct_1h, time_1h = get_bar_based_change(1)
+        pct_2h, time_2h = get_bar_based_change(2)
+        pct_3h, time_3h = get_bar_based_change(3)
+        pct_4h, time_4h = get_bar_based_change(4)
 
         # --- MỐC MỞ CỬA LÚC 05:00 SÁNG GIỜ VIỆT NAM ---
+        now_vn = get_vn_time()
         today_date = now_vn.date()
         morning_5am_today = datetime(today_date.year, today_date.month, today_date.day, 5, 0, 0, tzinfo=VN_TZ)
         
