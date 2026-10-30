@@ -45,7 +45,7 @@ def send_telegram_message(message):
         print(f"Lỗi gửi tin nhắn Telegram: {e}")
 
 def get_single_asset_report(symbol, title):
-    """Lấy dữ liệu và chuẩn hóa mốc thời gian an toàn tuyệt đối"""
+    """Lấy dữ liệu và chuẩn hóa mốc thời gian khớp TradingView"""
     try:
         df = yf.download(symbol, period="2d", interval="30m", progress=False)
         if df is None or df.empty or len(df) < 2:
@@ -138,8 +138,8 @@ def get_single_asset_report(symbol, title):
 
 def get_oil_report():
     try:
-        wti_msg = get_single_asset_report("CL=F", "DẦU THÔ WTI (CAUTURONG)")
-        brent_msg = get_single_asset_report("BZ=F", "DẦU THÔ BRENT (CAUTURONG)")
+        wti_msg = get_single_asset_report("CL=F", "DẦU THÔ WTI (USOIL)")
+        brent_msg = get_single_asset_report("BZ=F", "DẦU THÔ BRENT (UKOIL)")
         time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
         return f"{wti_msg}\n═══════════════════\n{brent_msg}\n═══════════════════\n⏰ Cập nhật lúc: `{time_str}`"
     except Exception as e:
@@ -148,7 +148,7 @@ def get_oil_report():
 
 def get_gold_report():
     try:
-        gold_msg = get_single_asset_report("GC=F", "VÀNG THẾ GIỚI (CAUTURONG)")
+        gold_msg = get_single_asset_report("GC=F", "VÀNG THẾ GIỚI (GOLD)")
         time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
         return f"{gold_msg}\n═══════════════════\n⏰ Cập nhật lúc: `{time_str}`"
     except Exception as e:
@@ -160,7 +160,6 @@ def background_loop():
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
     print("🎯 Bot nền đã khởi động và sẵn sàng nhận lệnh...")
     
-    # Khởi tạo offset tự động tránh kẹt tin cũ
     last_update_id = 0
     try:
         res = requests.get(url, params={"timeout": 1}, timeout=3)
@@ -175,8 +174,8 @@ def background_loop():
     while True:
         try:
             # 1. Kiểm tra tin nhắn Telegram mới
-            params = {"offset": last_update_id, "timeout": 2}
-            res = requests.get(url, params=params, timeout=5)
+            params = {"offset": last_update_id, "timeout": 1}
+            res = requests.get(url, params=params, timeout=4)
             data = res.json()
             
             if data.get("ok") and data.get("result"):
@@ -185,35 +184,42 @@ def background_loop():
                     message = update.get("message", {})
                     text = message.get("text", "").strip().lower()
                     
-                    if text == "xem":
-                        print("👉 Đang xử lý lệnh 'xem' (Dầu)...")
+                    print(f"📥 Nhận được lệnh: '{text}'")
+                    
+                    if text in ["xem", "dau", "dầu"]:
+                        print("👉 Đang xử lý lệnh Dầu...")
                         report = get_oil_report()
                         if report:
                             send_telegram_message("⚡ *BẢN TIN DẦU THÔ THỰC TẾ*\n\n" + report)
                             
-                    elif text in ["vang", "gold", "vàng"]:
-                        print("👉 Đang xử lý lệnh 'vang' (Vàng)...")
+                    elif text in ["vang", "gold", "vàng", "vàn"]:
+                        print("👉 Đang xử lý lệnh Vàng...")
                         report = get_gold_report()
                         if report:
                             send_telegram_message("⚡ *BẢN TIN VÀNG THẾ GIỚI THỰC TẾ*\n\n" + report)
 
-            # 2. Kiểm tra giờ gửi báo cáo dầu tự động (05:00 - 21:00)
+            # 2. Kiểm tra giờ gửi báo cáo tự động (Chỉ từ Thứ 2 đến Thứ 6, từ 05:00 đến 21:00)
             now_vn = get_vn_time()
+            weekday = now_vn.weekday() # 0-4 là Thứ 2 đến Thứ 6, 5-6 là Thứ 7 & Chủ Nhật
             h, m, d = now_vn.hour, now_vn.minute, now_vn.date()
             
-            if (h > 5 or (h == 5 and m >= 0)) and (h < 21 or (h == 21 and m <= 0)):
-                slot_name = f"{d}-{h}" if (0 <= m <= 5) else None
-                if slot_name and last_sent_slot != slot_name:
-                    print(f"Đang gửi báo cáo định kỳ lúc {h}:{m:02d}...")
-                    report = get_oil_report()
-                    if report:
-                        send_telegram_message(report)
-                    last_sent_slot = slot_name
+            if weekday < 5:  # Chỉ chạy từ Thứ 2 đến Thứ 6
+                if (h > 5 or (h == 5 and m >= 0)) and (h < 21 or (h == 21 and m <= 0)):
+                    slot_name = f"{d}-{h}" if (0 <= m <= 5) else None
+                    if slot_name and last_sent_slot != slot_name:
+                        print(f"Đang gửi báo cáo định kỳ lúc {h}:{m:02d}...")
+                        report = get_oil_report()
+                        if report:
+                            send_telegram_message(report)
+                        last_sent_slot = slot_name
+            else:
+                # Vào Thứ 7 hoặc Chủ Nhật, reset mốc để sang tuần mới chạy lại bình thường
+                last_sent_slot = ""
 
         except Exception as e:
             print(f"⚠️ Lỗi ở vòng lặp nền: {e}")
             
-        time.sleep(2)
+        time.sleep(1)
 
 if __name__ == '__main__':
     t = threading.Thread(target=background_loop)
