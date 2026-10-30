@@ -20,7 +20,7 @@ def run_web():
 TELEGRAM_TOKEN = "8234059775:AAHk8kv9ruTGV_qsGbFXC7SgTxfRwWOO1BI"
 TELEGRAM_CHAT_ID = "5931570040"
 
-# 🛠️ ĐỘ LỆCH GIÁ VÀNG SO VỚI TRADINGVIEW (Đã tinh chỉnh theo thực tế)
+# 🛠️ ĐỘ LỆCH GIÁ VÀNG SO VỚI TRADINGVIEW
 GOLD_OFFSET = -10.36 
 
 # Múi giờ Việt Nam (UTC+7)
@@ -45,7 +45,7 @@ def send_telegram_message(message):
         print(f"Lỗi gửi tin nhắn Telegram: {e}")
 
 def get_single_asset_report(symbol, title):
-    """Lấy dữ liệu và tính toán với mốc mở cửa cố định từ 05:00 sáng VN"""
+    """Lấy dữ liệu và tính toán với mốc giờ bám sát nến thực tế thị trường"""
     try:
         df = yf.download(symbol, period="5d", interval="30m", progress=False)
         if df.empty or len(df) < 10:
@@ -62,13 +62,14 @@ def get_single_asset_report(symbol, title):
         closes = df['Close']
         current_price = float(closes.iloc[-1])
         
-        # Áp dụng offset cho Vàng nếu có chênh lệch với TradingView
         if symbol == "GC=F":
             current_price += GOLD_OFFSET
 
         latest_time = df.index[-1]
 
-        def get_change_and_time(hours):
+        # --- TÍNH BIẾN ĐỘNG BÁM SÁT MỐC THỜI GIAN THỰC TẾ CỦA NẾN ---
+        def get_realtime_hourly_change(hours):
+            # Lùi chính xác số giờ từ thời điểm nến cuối cùng của thị trường
             target_time = latest_time - timedelta(hours=hours)
             idx = df.index.get_indexer([target_time], method='nearest')[0]
             past_price = float(closes.iloc[idx])
@@ -78,19 +79,16 @@ def get_single_asset_report(symbol, title):
             pct = ((current_price - past_price) / past_price) * 100
             return round(pct, 2), past_time_str
 
-        pct_1h, time_1h = get_change_and_time(1)
-        pct_2h, time_2h = get_change_and_time(2)
-        pct_3h, time_3h = get_change_and_time(3)
-        pct_4h, time_4h = get_change_and_time(4)
+        pct_1h, time_1h = get_realtime_hourly_change(1)
+        pct_2h, time_2h = get_realtime_hourly_change(2)
+        pct_3h, time_3h = get_realtime_hourly_change(3)
+        pct_4h, time_4h = get_realtime_hourly_change(4)
 
-        # --- LOGIC CỐ ĐỊNH MỐC MỞ CỬA LÚC 05:00 SÁNG GIỜ VIỆT NAM ---
+        # --- MỐC MỞ CỬA LÚC 05:00 SÁNG GIỜ VIỆT NAM ---
         now_vn = get_vn_time()
         today_date = now_vn.date()
-        
-        # Tạo mốc 05:00 sáng hôm nay theo giờ VN
         morning_5am_today = datetime(today_date.year, today_date.month, today_date.day, 5, 0, 0, tzinfo=VN_TZ)
         
-        # Nếu thời điểm hiện tại trước 05:00 sáng, mốc tham chiếu sẽ lấy từ 05:00 sáng ngày hôm trước
         if now_vn < morning_5am_today:
             morning_5am_today = morning_5am_today - timedelta(days=1)
 
@@ -104,7 +102,6 @@ def get_single_asset_report(symbol, title):
             change_day = round(((current_price - open_price_today) / open_price_today) * 100, 2)
             day_label = f"Mở cửa lúc {open_time_str}"
         else:
-            # Fallback nếu chưa có dữ liệu qua 05:00
             df_prev = df[df.index.date < today_date]
             prev_day_close = float(df_prev['Close'].iloc[-1]) if not df_prev.empty else current_price
             if symbol == "GC=F":
@@ -140,7 +137,7 @@ def get_single_asset_report(symbol, title):
         print(f"Lỗi lấy dữ liệu {title}: {e}")
         return f"📌 *{title}*: ⚠️ Không thể lấy dữ liệu lúc này.\n"
 
-# Báo cáo riêng cho Dầu (Dùng cho lịch tự động và lệnh 'xem')
+# Báo cáo riêng cho Dầu
 def get_oil_report():
     wti_msg = get_single_asset_report("CL=F", "DẦU THÔ WTI (CAUTURONG)")
     brent_msg = get_single_asset_report("BZ=F", "DẦU THÔ BRENT (CAUTURONG)")
@@ -149,7 +146,7 @@ def get_oil_report():
     time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
     return f"{wti_msg}\n═══════════════════\n{brent_msg}\n═══════════════════\n⏰ Cập nhật lúc: `{time_str}`"
 
-# Báo cáo riêng cho Vàng (Chỉ khi gõ 'vang')
+# Báo cáo riêng cho Vàng
 def get_gold_report():
     gold_msg = get_single_asset_report("GC=F", "VÀNG THẾ GIỚI (CAUTURONG)")
     if not gold_msg:
