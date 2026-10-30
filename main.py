@@ -155,37 +155,37 @@ def get_gold_report():
     time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
     return f"{gold_msg}\n═══════════════════\n⏰ Cập nhật lúc: `{time_str}`"
 
-# --- HÀM LẮNG NGHE LỆNH CHAT TỪ TELEGRAM ---
+# --- HÀM LẮNG NGHE LỆNH CHAT TỪ TELEGRAM (ĐÃ TỐI ƯU BẮT LỆNH NHẠY) ---
 def check_telegram_commands():
     last_update_id = 0
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
     while True:
         try:
-            params = {"offset": last_update_id + 1, "timeout": 30}
-            response = requests.get(url, params=params, timeout=35)
+            params = {"offset": last_update_id, "timeout": 25}
+            response = requests.get(url, params=params, timeout=30)
             data = response.json()
             
             if data.get("ok") and data.get("result"):
                 for update in data["result"]:
-                    last_update_id = update["update_id"]
+                    last_update_id = update["update_id"] + 1
                     message = update.get("message", {})
                     text = message.get("text", "").strip().lower()
                     
                     if text == "xem":
-                        print("Nhận được lệnh 'xem' (Dầu). Đang gửi...")
+                        print("Nhận lệnh 'xem' (Dầu). Đang gửi...")
                         report_msg = get_oil_report()
                         if report_msg:
                             send_telegram_message("⚡ *BẢN TIN DẦU THÔ THỰC TẾ*\n\n" + report_msg)
                             
                     elif text in ["vang", "gold", "vàng"]:
-                        print("Nhận được lệnh 'vang' (Vàng). Đang gửi...")
+                        print("Nhận lệnh 'vang' (Vàng). Đang gửi...")
                         report_msg = get_gold_report()
                         if report_msg:
                             send_telegram_message("⚡ *BẢN TIN VÀNG THẾ GIỚI THỰC TẾ*\n\n" + report_msg)
                             
         except Exception as e:
             print(f"Lỗi đọc lệnh Telegram: {e}")
-            time.sleep(5)
+            time.sleep(3)
 
 # --- VÒNG LẬP CHẠY BOT (5:00 - 21:00, Tần suất 1 tiếng/lần - Chỉ gửi Dầu) ---
 def run_bot():
@@ -223,7 +223,7 @@ def run_bot():
                         send_telegram_message(report_msg)
                     last_sent_slot = slot_name
             else:
-                print(f"Ngoài giờ thông báo ({current_hour}:{current_minute:02d}). Bot đang nghỉ nhắc nhở.")
+                print(f"Ngoài giờ thông báo ({current_hour}:{current_minute:02d}). Bot đang nghỉ.")
 
             time.sleep(30)
             
