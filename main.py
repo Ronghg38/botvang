@@ -157,14 +157,24 @@ def get_gold_report():
 
 # --- VÒNG LẶP NỀN XỬ LÝ LỆNH VÀ ĐỊNH KỲ ---
 def background_loop():
-    last_update_id = 0
-    last_sent_slot = ""
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
     print("🎯 Bot nền đã khởi động và sẵn sàng nhận lệnh...")
+    
+    # Khởi tạo offset tự động tránh kẹt tin cũ
+    last_update_id = 0
+    try:
+        res = requests.get(url, params={"timeout": 1}, timeout=3)
+        data = res.json()
+        if data.get("ok") and data.get("result"):
+            last_update_id = data["result"][-1]["update_id"] + 1
+    except Exception as e:
+        print(f"Khởi tạo offset lỗi: {e}")
+
+    last_sent_slot = ""
 
     while True:
         try:
-            # 1. Kiểm tra tin nhắn Telegram
+            # 1. Kiểm tra tin nhắn Telegram mới
             params = {"offset": last_update_id, "timeout": 2}
             res = requests.get(url, params=params, timeout=5)
             data = res.json()
@@ -206,10 +216,8 @@ def background_loop():
         time.sleep(2)
 
 if __name__ == '__main__':
-    # Khởi động luồng nền
     t = threading.Thread(target=background_loop)
     t.daemon = True
     t.start()
     
-    # Chạy Flask web server
     run_web()
