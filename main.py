@@ -45,7 +45,7 @@ def send_telegram_message(message):
         print(f"Lỗi gửi tin nhắn Telegram: {e}")
 
 def get_single_asset_report(symbol, title):
-    """Lấy dữ liệu và tính toán bám sát thực tế nến của sàn"""
+    """Lấy dữ liệu và tính toán bám sát mốc mở cửa chuẩn từ 05:00 sáng"""
     try:
         df = yf.download(symbol, period="5d", interval="30m", progress=False)
         if df.empty or len(df) < 10:
@@ -65,38 +65,20 @@ def get_single_asset_report(symbol, title):
         if symbol == "GC=F":
             current_price += GOLD_OFFSET
 
-        # --- HÀM TÍNH BIẾN ĐỘNG DỰA TRÊN SỐ NẾN THỰC TẾ CỦA SÀN ---
-        def get_bar_based_change(hours_back):
-            # Mỗi 1 giờ ứng với 2 nến 30 phút. Tính vị trí lùi từ nến mới nhất (-1)
-            target_idx = len(closes) - 1 - (hours_back * 2)
-            if target_idx < 0:
-                target_idx = 0
-            
-            past_price = float(closes.iloc[target_idx])
-            if symbol == "GC=F":
-                past_price += GOLD_OFFSET
-            past_time_str = df.index[target_idx].strftime('%H:%M %d/%m')
-            pct = ((current_price - past_price) / past_price) * 100
-            return round(pct, 2), past_time_str
-
-        pct_1h, time_1h = get_bar_based_change(1)
-        pct_2h, time_2h = get_bar_based_change(2)
-        pct_3h, time_3h = get_bar_based_change(3)
-        pct_4h, time_4h = get_bar_based_change(4)
-
-        # --- MỐC MỞ CỬA LÚC 05:00 SÁNG GIỜ VIỆT NAM ---
         now_vn = get_vn_time()
         today_date = now_vn.date()
-        morning_5am_today = datetime(today_date.year, today_date.month, today_date.day, 5, 0, 0, tzinfo=VN_TZ)
         
+        # Mốc mở cửa chính thức trong ngày: 05:00 sáng VN
+        morning_5am_today = datetime(today_date.year, today_date.month, today_date.day, 5, 0, 0, tzinfo=VN_TZ)
         if now_vn < morning_5am_today:
             morning_5am_today = morning_5am_today - timedelta(days=1)
 
-        df_since_5am = df[df.index >= morning_5am_today]
+        # Lọc dữ liệu từ mốc 05:00 sáng nay
+        df_today_session = df[df.index >= morning_5am_today]
 
-        if not df_since_5am.empty:
-            open_price_today = float(df_since_5am['Open'].iloc[0])
-            open_time_str = df_since_5am.index[0].strftime('%H:%M %d/%m')
+        if not df_today_session.empty:
+            open_price_today = float(df_today_session['Open'].iloc[0])
+            open_time_str = df_today_session.index[0].strftime('%H:%M %d/%m')
             if symbol == "GC=F":
                 open_price_today += GOLD_OFFSET
             change_day = round(((current_price - open_price_today) / open_price_today) * 100, 2)
@@ -108,6 +90,26 @@ def get_single_asset_report(symbol, title):
                 prev_day_close += GOLD_OFFSET
             change_day = round(((current_price - prev_day_close) / prev_day_close) * 100, 2)
             day_label = "So với hôm trước"
+
+        # --- HÀM TÍNH BIẾN ĐỘNG THEO GIỜ (CHẶN ĐẦU TỪ MỐC 05:00 SÁNG) ---
+        def get_clean_hourly_change(hours_back):
+            target_time = now_vn - timedelta(hours=hours_back)
+            # Nếu thời gian lùi vượt quá hoặc chạm mốc mở cửa 05:00, lấy đúng cây nến đầu phiên lúc 05:00 làm mốc
+            if target_time < morning_5am_today:
+                target_time = morning_5am_today
+                
+            idx = df.index.get_indexer([target_time], method='nearest')[0]
+            past_price = float(closes.iloc[idx])
+            if symbol == "GC=F":
+                past_price += GOLD_OFFSET
+            past_time_str = df.index[idx].strftime('%H:%M %d/%m')
+            pct = ((current_price - past_price) / past_price) * 100
+            return round(pct, 2), past_time_str
+
+        pct_1h, time_1h = get_clean_hourly_change(1)
+        pct_2h, time_2h = get_clean_hourly_change(2)
+        pct_3h, time_3h = get_clean_hourly_change(3)
+        pct_4h, time_4h = get_clean_hourly_change(4)
 
         def format_line(val, hours_label, t_str):
             icon = "🟢" if val >= 0 else "🔴"
