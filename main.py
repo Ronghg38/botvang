@@ -45,7 +45,7 @@ def send_telegram_message(message):
         print(f"Lỗi gửi tin nhắn Telegram: {e}")
 
 def get_single_asset_report(symbol, title):
-    """Lấy dữ liệu và tính toán với mốc giờ bám sát nến thực tế thị trường"""
+    """Lấy dữ liệu và tính toán với mốc giờ lùi tuyến tính chuẩn xác tuyệt đối"""
     try:
         df = yf.download(symbol, period="5d", interval="30m", progress=False)
         if df.empty or len(df) < 10:
@@ -65,12 +65,13 @@ def get_single_asset_report(symbol, title):
         if symbol == "GC=F":
             current_price += GOLD_OFFSET
 
-        latest_time = df.index[-1]
+        # Lấy thời gian thực tế hiện tại tại thời điểm bot chạy
+        now_vn = get_vn_time()
 
-        # --- TÍNH BIẾN ĐỘNG BÁM SÁT MỐC THỜI GIAN THỰC TẾ CỦA NẾN ---
-        def get_realtime_hourly_change(hours):
-            # Lùi chính xác số giờ từ thời điểm nến cuối cùng của thị trường
-            target_time = latest_time - timedelta(hours=hours)
+        # --- HÀM TÍNH BIẾN ĐỘNG THEO CÁC MỐC GIỜ TRÒN TUYẾN TÍNH ---
+        def get_exact_linear_change(hours_back):
+            # Lùi chính xác 1h, 2h, 3h, 4h từ thời điểm hiện tại
+            target_time = now_vn - timedelta(hours=hours_back)
             idx = df.index.get_indexer([target_time], method='nearest')[0]
             past_price = float(closes.iloc[idx])
             if symbol == "GC=F":
@@ -79,13 +80,12 @@ def get_single_asset_report(symbol, title):
             pct = ((current_price - past_price) / past_price) * 100
             return round(pct, 2), past_time_str
 
-        pct_1h, time_1h = get_realtime_hourly_change(1)
-        pct_2h, time_2h = get_realtime_hourly_change(2)
-        pct_3h, time_3h = get_realtime_hourly_change(3)
-        pct_4h, time_4h = get_realtime_hourly_change(4)
+        pct_1h, time_1h = get_exact_linear_change(1)
+        pct_2h, time_2h = get_exact_linear_change(2)
+        pct_3h, time_3h = get_exact_linear_change(3)
+        pct_4h, time_4h = get_exact_linear_change(4)
 
         # --- MỐC MỞ CỬA LÚC 05:00 SÁNG GIỜ VIỆT NAM ---
-        now_vn = get_vn_time()
         today_date = now_vn.date()
         morning_5am_today = datetime(today_date.year, today_date.month, today_date.day, 5, 0, 0, tzinfo=VN_TZ)
         
