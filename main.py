@@ -45,10 +45,10 @@ def send_telegram_message(message):
         print(f"Lỗi gửi tin nhắn Telegram: {e}")
 
 def get_single_asset_report(symbol, title):
-    """Lấy dữ liệu và tính toán bám sát mốc mở cửa chuẩn từ 05:00 sáng"""
+    """Lấy dữ liệu và chuẩn hóa mốc thời gian chung cho cả Dầu và Vàng"""
     try:
-        df = yf.download(symbol, period="5d", interval="30m", progress=False)
-        if df.empty or len(df) < 5:
+        df = yf.download(symbol, period="2d", interval="30m", progress=False)
+        if df.empty or len(df) < 3:
             return f"📌 *{title}*: ⚠️ Dữ liệu trống."
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.droplevel(1)
@@ -73,7 +73,6 @@ def get_single_asset_report(symbol, title):
         if now_vn < morning_5am_today:
             morning_5am_today = morning_5am_today - timedelta(days=1)
 
-        # Lọc dữ liệu từ mốc 05:00 sáng nay
         df_today_session = df[df.index >= morning_5am_today]
 
         if not df_today_session.empty:
@@ -91,7 +90,7 @@ def get_single_asset_report(symbol, title):
             change_day = round(((current_price - prev_day_close) / prev_day_close) * 100, 2)
             day_label = "So với hôm trước"
 
-        # --- HÀM TÍNH BIẾN ĐỘNG THEO GIỜ (CHẶN ĐẦU TỪ MỐC 05:00 SÁNG) ---
+        # --- HÀM TÍNH BIẾN ĐỘNG THEO GIỜ (CHẶN ĐẦU TỪ MỐC 05:00 SÁNG CHO CẢ DẦU VÀ VÀNG) ---
         def get_clean_hourly_change(hours_back):
             target_time = now_vn - timedelta(hours=hours_back)
             if target_time < morning_5am_today:
@@ -155,14 +154,14 @@ def get_gold_report():
     time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
     return f"{gold_msg}\n═══════════════════\n⏰ Cập nhật lúc: `{time_str}`"
 
-# --- HÀM LẮNG NGHE LỆNH CHAT TỪ TELEGRAM (ĐÃ TỐI ƯU BẮT LỆNH NHẠY) ---
+# --- HÀM LẮNG NGHE LỆNH CHAT AN TOÀN ---
 def check_telegram_commands():
     last_update_id = 0
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
     while True:
         try:
-            params = {"offset": last_update_id, "timeout": 25}
-            response = requests.get(url, params=params, timeout=30)
+            params = {"offset": last_update_id, "timeout": 20}
+            response = requests.get(url, params=params, timeout=25)
             data = response.json()
             
             if data.get("ok") and data.get("result"):
@@ -172,13 +171,13 @@ def check_telegram_commands():
                     text = message.get("text", "").strip().lower()
                     
                     if text == "xem":
-                        print("Nhận lệnh 'xem' (Dầu). Đang gửi...")
+                        print("Nhận lệnh 'xem' (Dầu). Đang xử lý...")
                         report_msg = get_oil_report()
                         if report_msg:
                             send_telegram_message("⚡ *BẢN TIN DẦU THÔ THỰC TẾ*\n\n" + report_msg)
                             
                     elif text in ["vang", "gold", "vàng"]:
-                        print("Nhận lệnh 'vang' (Vàng). Đang gửi...")
+                        print("Nhận lệnh 'vang' (Vàng). Đang xử lý...")
                         report_msg = get_gold_report()
                         if report_msg:
                             send_telegram_message("⚡ *BẢN TIN VÀNG THẾ GIỚI THỰC TẾ*\n\n" + report_msg)
@@ -187,12 +186,10 @@ def check_telegram_commands():
             print(f"Lỗi đọc lệnh Telegram: {e}")
             time.sleep(3)
 
-# --- VÒNG LẬP CHẠY BOT (5:00 - 21:00, Tần suất 1 tiếng/lần - Chỉ gửi Dầu) ---
+# --- VÒNG LẬP CHẠY BOT ĐỊNH KỲ ---
 def run_bot():
     print("🚀 Bot (CAUTURONG) đang chạy...")
-    init_time = get_vn_time().strftime('%Y-%m-%d %H:%M:%S')
-    send_telegram_message(f"🚀 *Bot Báo Giá Dầu Thô (CAUTURONG)* đã khởi động thành công lúc `{init_time}`!")
-
+    
     cmd_thread = Thread(target=check_telegram_commands)
     cmd_thread.daemon = True
     cmd_thread.start()
@@ -223,7 +220,7 @@ def run_bot():
                         send_telegram_message(report_msg)
                     last_sent_slot = slot_name
             else:
-                print(f"Ngoài giờ thông báo ({current_hour}:{current_minute:02d}). Bot đang nghỉ.")
+                pass
 
             time.sleep(30)
             
