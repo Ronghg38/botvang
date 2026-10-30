@@ -3,7 +3,6 @@ import requests
 import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta, timezone
-from threading import Thread
 from flask import Flask
 
 # --- CẤU HÌNH WEB SERVER CHO RENDER ---
@@ -45,7 +44,7 @@ def send_telegram_message(message):
         print(f"Lỗi gửi tin nhắn Telegram: {e}")
 
 def get_single_asset_report(symbol, title):
-    """Lấy dữ liệu và chuẩn hóa mốc thời gian"""
+    """Lấy dữ liệu và chuẩn hóa mốc thời gian an toàn chống tràn RAM"""
     try:
         df = yf.download(symbol, period="2d", interval="30m", progress=False)
         if df.empty or len(df) < 3:
@@ -136,7 +135,6 @@ def get_single_asset_report(symbol, title):
         print(f"Lỗi lấy dữ liệu {title}: {e}")
         return f"📌 *{title}*: ⚠️ Không thể lấy dữ liệu lúc này.\n"
 
-# Báo cáo riêng cho Dầu
 def get_oil_report():
     wti_msg = get_single_asset_report("CL=F", "DẦU THÔ WTI (CAUTURONG)")
     brent_msg = get_single_asset_report("BZ=F", "DẦU THÔ BRENT (CAUTURONG)")
@@ -145,7 +143,6 @@ def get_oil_report():
     time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
     return f"{wti_msg}\n═══════════════════\n{brent_msg}\n═══════════════════\n⏰ Cập nhật lúc: `{time_str}`"
 
-# Báo cáo riêng cho Vàng
 def get_gold_report():
     gold_msg = get_single_asset_report("GC=F", "VÀNG THẾ GIỚI (CAUTURONG)")
     if not gold_msg:
@@ -153,84 +150,83 @@ def get_gold_report():
     time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
     return f"{gold_msg}\n═══════════════════\n⏰ Cập nhật lúc: `{time_str}`"
 
-# --- HÀM LẮNG NGHE LỆNH CHAT ĐÃ ĐƯỢC BỌC AN TOÀN ---
-def check_telegram_commands():
-    last_update_id = 0
+# --- HÀM KIỂM TRA TIN NHẮN TELEGRAM TRỰC TIẾP ---
+def check_telegram_messages(last_update_id):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
-    print("🎯 Luồng lắng nghe lệnh Telegram đã sẵn sàng...")
-    
-    while True:
-        try:
-            params = {"offset": last_update_id, "timeout": 25}
-            response = requests.get(url, params=params, timeout=30)
-            data = response.json()
-            
-            if data.get("ok") and data.get("result"):
-                for update in data["result"]:
-                    last_update_id = update["update_id"] + 1
-                    message = update.get("message", {})
-                    text = message.get("text", "").strip().lower()
-                    
-                    if text == "xem":
-                        print("👉 Nhận lệnh 'xem' (Dầu). Đang xử lý...")
-                        report_msg = get_oil_report()
-                        if report_msg:
-                            send_telegram_message("⚡ *BẢN TIN DẦU THÔ THỰC TẾ*\n\n" + report_msg)
-                            
-                    elif text in ["vang", "gold", "vàng"]:
-                        print("👉 Nhận lệnh 'vang' (Vàng). Đang xử lý...")
-                        report_msg = get_gold_report()
-                        if report_msg:
-                            send_telegram_message("⚡ *BẢN TIN VÀNG THẾ GIỚI THỰC TẾ*\n\n" + report_msg)
-                            
-        except Exception as e:
-            print(f"⚠️ Lỗi trong vòng lặp lệnh Telegram: {e}")
-            time.sleep(5)
-
-# --- VÒNG LẬP CHẠY BOT ĐỊNH KỲ ---
-def run_bot():
-    print("🚀 Bot (CAUTURONG) đã khởi động luồng chính thành công!")
-    
-    # Khởi động luồng lắng nghe lệnh chat
-    cmd_thread = Thread(target=check_telegram_commands)
-    cmd_thread.daemon = True
-    cmd_thread.start()
-
-    last_sent_slot = ""
-
-    while True:
-        try:
-            now_vn = get_vn_time()
-            current_hour = now_vn.hour
-            current_minute = now_vn.minute
-            current_date = now_vn.date()
-            
-            is_after_start = (current_hour > 5) or (current_hour == 5 and current_minute >= 0)
-            is_before_end = (current_hour < 21) or (current_hour == 21 and current_minute <= 0)
-            is_allowed_time = is_after_start and is_before_end
-            
-            if is_allowed_time:
-                if 0 <= current_minute <= 5:
-                    slot_name = f"{current_date}-{current_hour}"
-                else:
-                    slot_name = None
-
-                if slot_name and last_sent_slot != slot_name:
-                    print(f"Đang gửi báo cáo định kỳ lúc {current_hour}:{current_minute:02d}...")
+    try:
+        params = {"offset": last_update_id, "timeout": 1}
+        response = requests.get(url, params=params, timeout=3)
+        data = response.json()
+        
+        if data.get("ok") and data.get("result"):
+            for update in data["result"]:
+                last_update_id = update["update_id"] + 1
+                message = update.get("message", {})
+                text = message.get("text", "").strip().lower()
+                
+                if text == "xem":
+                    print("👉 Xử lý lệnh 'xem' (Dầu)...")
                     report_msg = get_oil_report()
                     if report_msg:
-                        send_telegram_message(report_msg)
-                    last_sent_slot = slot_name
+                        send_telegram_message("⚡ *BẢN TIN DẦU THÔ THỰC TẾ*\n\n" + report_msg)
+                        
+                elif text in ["vang", "gold", "vàng"]:
+                    print("👉 Xử lý lệnh 'vang' (Vàng)...")
+                    report_msg = get_gold_report()
+                    if report_msg:
+                        send_telegram_message("⚡ *BẢN TIN VÀNG THẾ GIỚI THỰC TẾ*\n\n" + report_msg)
+    except Exception as e:
+        print(f"Lỗi check tin nhắn: {e}")
+        
+    return last_update_id
 
-            time.sleep(30)
-            
-        except Exception as e:
-            print(f"⚠️ Lỗi vòng lặp báo cáo định kỳ: {e}")
-            time.sleep(60)
-
+# --- CHẠY WEB SERVER TRỰC TIẾP TRÊN MAIN THREAD ĐỂ AN TOÀN TUYỆT ĐỐI ---
 if __name__ == '__main__':
-    t = Thread(target=run_bot)
-    t.daemon = True
-    t.start()
+    print("🚀 Bot (CAUTURONG) đã khởi động thành công!")
     
+    last_update_id = 0
+    last_sent_slot = ""
+    last_check_time = 0
+
+    # Khởi động một luồng nền duy nhất cực kỳ gọn nhẹ để chạy vòng lặp kiểm tra định kỳ và tin nhắn
+    import threading
+    def background_loop():
+        global last_update_id, last_sent_slot, last_check_time
+        while True:
+            try:
+                now_vn = get_vn_time()
+                current_hour = now_vn.hour
+                current_minute = now_vn.minute
+                current_date = now_vn.date()
+                
+                # 1. Kiểm tra tin nhắn Telegram liên tục mỗi 2 giây
+                last_update_id = check_telegram_messages(last_update_id)
+                
+                # 2. Kiểm tra báo cáo định kỳ dầu (05:00 - 21:00)
+                is_after_start = (current_hour > 5) or (current_hour == 5 and current_minute >= 0)
+                is_before_end = (current_hour < 21) or (current_hour == 21 and current_minute <= 0)
+                
+                if is_after_start and is_before_end:
+                    if 0 <= current_minute <= 5:
+                        slot_name = f"{current_date}-{current_hour}"
+                    else:
+                        slot_name = None
+
+                    if slot_name and last_sent_slot != slot_name:
+                        print(f"Đang gửi báo cáo định kỳ lúc {current_hour}:{current_minute:02d}...")
+                        report_msg = get_oil_report()
+                        if report_msg:
+                            send_telegram_message(report_msg)
+                        last_sent_slot = slot_name
+                
+                time.sleep(2)
+            except Exception as e:
+                print(f"Lỗi vòng lặp nền: {e}")
+                time.sleep(5)
+
+    bg_thread = threading.Thread(target=background_loop)
+    bg_thread.daemon = True
+    bg_thread.start()
+
+    # Chạy Flask web server chính
     run_web()
