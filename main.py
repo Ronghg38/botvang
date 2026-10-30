@@ -14,7 +14,7 @@ def home():
     return "Oil & Gold Bot (CAUTURONG) is running 24/7!"
 
 def run_web():
-    app.run(host='0.0.0.0', port=10000)
+    app.run(host='0.0.0.0', port=10000, debug=False, use_reloader=False)
 
 # --- CẤU HÌNH THÔNG TIN BOT ---
 TELEGRAM_TOKEN = "8234059775:AAHk8kv9ruTGV_qsGbFXC7SgTxfRwWOO1BI"
@@ -39,7 +39,7 @@ def send_telegram_message(message):
         "parse_mode": "Markdown"
     }
     try:
-        response = requests.post(url, json=payload)
+        response = requests.post(url, json=payload, timeout=10)
         return response.json()
     except Exception as e:
         print(f"Lỗi gửi tin nhắn Telegram: {e}")
@@ -48,8 +48,8 @@ def get_single_asset_report(symbol, title):
     """Lấy dữ liệu và tính toán bám sát mốc mở cửa chuẩn từ 05:00 sáng"""
     try:
         df = yf.download(symbol, period="5d", interval="30m", progress=False)
-        if df.empty or len(df) < 10:
-            return None
+        if df.empty or len(df) < 5:
+            return f"📌 *{title}*: ⚠️ Dữ liệu trống."
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.droplevel(1)
             
@@ -94,7 +94,6 @@ def get_single_asset_report(symbol, title):
         # --- HÀM TÍNH BIẾN ĐỘNG THEO GIỜ (CHẶN ĐẦU TỪ MỐC 05:00 SÁNG) ---
         def get_clean_hourly_change(hours_back):
             target_time = now_vn - timedelta(hours=hours_back)
-            # Nếu thời gian lùi vượt quá hoặc chạm mốc mở cửa 05:00, lấy đúng cây nến đầu phiên lúc 05:00 làm mốc
             if target_time < morning_5am_today:
                 target_time = morning_5am_today
                 
@@ -173,13 +172,13 @@ def check_telegram_commands():
                     text = message.get("text", "").strip().lower()
                     
                     if text == "xem":
-                        print("Nhận được 'xem' (Dầu). Đang gửi...")
+                        print("Nhận được lệnh 'xem' (Dầu). Đang gửi...")
                         report_msg = get_oil_report()
                         if report_msg:
                             send_telegram_message("⚡ *BẢN TIN DẦU THÔ THỰC TẾ*\n\n" + report_msg)
                             
-                    elif text == "vang":
-                        print("Nhận được 'vang' (Vàng). Đang gửi...")
+                    elif text in ["vang", "gold", "vàng"]:
+                        print("Nhận được lệnh 'vang' (Vàng). Đang gửi...")
                         report_msg = get_gold_report()
                         if report_msg:
                             send_telegram_message("⚡ *BẢN TIN VÀNG THẾ GIỚI THỰC TẾ*\n\n" + report_msg)
@@ -224,7 +223,7 @@ def run_bot():
                         send_telegram_message(report_msg)
                     last_sent_slot = slot_name
             else:
-                print(f"Ngoài giờ thông báo ({current_hour}:{current_minute:02d}). Bot đang nghỉ.")
+                print(f"Ngoài giờ thông báo ({current_hour}:{current_minute:02d}). Bot đang nghỉ nhắc nhở.")
 
             time.sleep(30)
             
