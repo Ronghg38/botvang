@@ -139,18 +139,18 @@ def get_single_asset_report(symbol, title):
         print(f"Lỗi lấy dữ liệu {title}: {e}")
         return f"📌 *{title}*: ⚠️ Không thể lấy dữ liệu lúc này.\n"
 
-# Báo cáo riêng cho Dầu
+# Báo cáo riêng cho Dầu (khớp mã USOIL, UKOIL)
 def get_oil_report():
-    wti_msg = get_single_asset_report("CL=F", "DẦU THÔ WTI (CAUTURONG)")
-    brent_msg = get_single_asset_report("BZ=F", "DẦU THÔ BRENT (CAUTURONG)")
+    wti_msg = get_single_asset_report("CL=F", "DẦU THÔ WTI (USOIL)")
+    brent_msg = get_single_asset_report("BZ=F", "DẦU THÔ BRENT (UKOIL)")
     if not wti_msg and not brent_msg:
         return None
     time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
     return f"{wti_msg}\n═══════════════════\n{brent_msg}\n═══════════════════\n⏰ Cập nhật lúc: `{time_str}`"
 
-# Báo cáo riêng cho Vàng
+# Báo cáo riêng cho Vàng (khớp mã GOLD)
 def get_gold_report():
-    gold_msg = get_single_asset_report("GC=F", "VÀNG THẾ GIỚI (CAUTURONG)")
+    gold_msg = get_single_asset_report("GC=F", "VÀNG THẾ GIỚI (GOLD)")
     if not gold_msg:
         return None
     time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
@@ -172,14 +172,14 @@ def check_telegram_commands():
                     message = update.get("message", {})
                     text = message.get("text", "").strip().lower()
                     
-                    if text == "xem":
-                        print("Nhận được 'xem' (Dầu). Đang gửi...")
+                    if text in ["xem", "dau", "dầu"]:
+                        print("Nhận được lệnh Dầu. Đang gửi...")
                         report_msg = get_oil_report()
                         if report_msg:
                             send_telegram_message("⚡ *BẢN TIN DẦU THÔ THỰC TẾ*\n\n" + report_msg)
                             
-                    elif text == "vang":
-                        print("Nhận được 'vang' (Vàng). Đang gửi...")
+                    elif text in ["vang", "gold", "vàng", "vàn"]:
+                        print("Nhận được lệnh Vàng. Đang gửi...")
                         report_msg = get_gold_report()
                         if report_msg:
                             send_telegram_message("⚡ *BẢN TIN VÀNG THẾ GIỚI THỰC TẾ*\n\n" + report_msg)
@@ -188,11 +188,11 @@ def check_telegram_commands():
             print(f"Lỗi đọc lệnh Telegram: {e}")
             time.sleep(5)
 
-# --- VÒNG LẬP CHẠY BOT (5:00 - 21:00, Tần suất 1 tiếng/lần - Chỉ gửi Dầu) ---
+# --- VÒNG LẶP CHẠY BOT (CHỈ GỬI ĐỊNH KỲ TỪ THỨ 2 ĐẾN THỨ 6) ---
 def run_bot():
     print("🚀 Bot (CAUTURONG) đang chạy...")
     init_time = get_vn_time().strftime('%Y-%m-%d %H:%M:%S')
-    send_telegram_message(f"🚀 *Bot Báo Giá Dầu Thô (CAUTURONG)* đã khởi động thành công lúc `{init_time}`!")
+    send_telegram_message(f"🚀 *Bot Báo Giá (CAUTURONG)* đã khởi động thành công lúc `{init_time}`!")
 
     cmd_thread = Thread(target=check_telegram_commands)
     cmd_thread.daemon = True
@@ -203,10 +203,17 @@ def run_bot():
     while True:
         try:
             now_vn = get_vn_time()
+            weekday = now_vn.weekday() # 0-4 là Thứ 2 đến Thứ 6, 5-6 là Thứ 7 & Chủ Nhật
             current_hour = now_vn.hour
             current_minute = now_vn.minute
             current_date = now_vn.date()
             
+            # Kiểm tra nếu là Thứ 7 hoặc Chủ Nhật thì bỏ qua báo cáo định kỳ
+            if weekday >= 5:
+                print(f"Hôm nay là cuối tuần (Thứ 7 / Chủ Nhật). Bot tạm nghỉ thông báo tự động.")
+                time.sleep(300) # Ngủ 5 phút kiểm tra lại một lần
+                continue
+
             is_after_start = (current_hour > 5) or (current_hour == 5 and current_minute >= 0)
             is_before_end = (current_hour < 21) or (current_hour == 21 and current_minute <= 0)
             is_allowed_time = is_after_start and is_before_end
