@@ -20,10 +20,10 @@ def run_web():
 TELEGRAM_TOKEN = "8234059775:AAHk8kv9ruTGV_qsGbFXC7SgTxfRwWOO1BI"
 TELEGRAM_CHAT_ID = "5931570040"
 
-# 🛠️ ĐỘ LỆCH GIÁ SO VỚI TRADINGVIEW (BẠN CÓ THỂ ĐIỀU CHỈNH CÁC SỐ NÀY NẾU CẦN KHỚP 100%)
+# 🛠️ ĐỘ LỆCH GIÁ SO VỚI TRADINGVIEW (Bạn có thể tinh chỉnh lại các con số này nếu cần)
 GOLD_OFFSET = -10.36 
-WTI_OFFSET = 0.0   # Điều chỉnh độ lệch cho Dầu WTI (CL=F so với USOIL)
-BRENT_OFFSET = 0.0 # Điều chỉnh độ lệch cho Dầu Brent (BZ=F so với UKOIL)
+WTI_OFFSET = -1.84    
+BRENT_OFFSET = -1.54  
 
 # Múi giờ Việt Nam (UTC+7)
 VN_TZ = timezone(timedelta(hours=7))
@@ -47,9 +47,10 @@ def send_telegram_message(message):
         print(f"Lỗi gửi tin nhắn Telegram: {e}")
 
 def get_single_asset_report(symbol, title):
-    """Lấy dữ liệu và tính toán bám sát mốc mở cửa chuẩn từ 05:00 sáng"""
+    """Lấy dữ liệu khung 1 giờ (1h) và tính toán bám sát mốc mở cửa chuẩn từ 05:00 sáng"""
     try:
-        df = yf.download(symbol, period="5d", interval="30m", progress=False)
+        # Sử dụng interval="1h" để dữ liệu khớp chính xác khung 1 giờ
+        df = yf.download(symbol, period="7d", interval="1h", progress=False)
         if df.empty or len(df) < 5:
             return f"📌 *{title}*: ⚠️ Dữ liệu trống."
         if isinstance(df.columns, pd.MultiIndex):
@@ -64,7 +65,7 @@ def get_single_asset_report(symbol, title):
         closes = df['Close']
         current_price = float(closes.iloc[-1])
         
-        # Áp dụng độ lệch giá tương ứng
+        # Áp dụng độ lệch giá tương ứng để khớp TradingView
         if symbol == "GC=F":
             current_price += GOLD_OFFSET
         elif symbol == "CL=F":
@@ -110,7 +111,7 @@ def get_single_asset_report(symbol, title):
             change_day = round(((current_price - prev_day_close) / prev_day_close) * 100, 2)
             day_label = "So với hôm trước"
 
-        # --- HÀM TÍNH BIẾN ĐỘNG THEO GIỜ (CHẶN ĐẦU TỪ MỐC 05:00 SÁNG) ---
+        # --- HÀM TÍNH BIẾN ĐỘNG THEO KHUNG 1 GIỜ CHUẨN ---
         def get_clean_hourly_change(hours_back):
             target_time = now_vn - timedelta(hours=hours_back)
             if target_time < morning_5am_today:
@@ -180,7 +181,7 @@ def get_gold_report():
     time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
     return f"{gold_msg}\n═══════════════════\n⏰ Cập nhật lúc: `{time_str}`"
 
-# --- HÀM LẮNG NGHE LỆNH CHAT TỪ TELEGRAM (ĐÃ TỐI ƯU ĐỂ NHẬN LỆNH NHANH) ---
+# --- HÀM LẮNG NGHE LỆNH CHAT TỪ TELEGRAM ---
 def check_telegram_commands():
     last_update_id = 0
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
