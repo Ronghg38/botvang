@@ -14,7 +14,6 @@ def home():
     return "Oil Price Bot (CAUTURONG) is running 24/7!"
 
 def run_web():
-    # Tắt hoàn toàn debug và reloader để tránh Flask tự khởi động lại làm sập bot
     app.run(host='0.0.0.0', port=10000, debug=False, use_reloader=False)
 
 # --- CẤU HÌNH THÔNG TIN BOT ---
@@ -139,24 +138,24 @@ def get_single_asset_report(symbol, title):
         print(f"Lỗi lấy dữ liệu {title}: {e}")
         return f"📌 *{title}*: ⚠️ Không thể lấy dữ liệu lúc này.\n"
 
-# Báo cáo riêng cho Dầu (khớp mã USOIL, UKOIL)
+# Báo cáo riêng cho Dầu (Đã đổi tên hiển thị khớp với ảnh chụp mẫu)
 def get_oil_report():
-    wti_msg = get_single_asset_report("CL=F", "DẦU THÔ WTI (USOIL)")
-    brent_msg = get_single_asset_report("BZ=F", "DẦU THÔ BRENT (UKOIL)")
+    wti_msg = get_single_asset_report("CL=F", "DẦU THÔ WTI (CAUTURONG)")
+    brent_msg = get_single_asset_report("BZ=F", "DẦU THÔ BRENT (CAUTURONG)")
     if not wti_msg and not brent_msg:
         return None
     time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
     return f"{wti_msg}\n═══════════════════\n{brent_msg}\n═══════════════════\n⏰ Cập nhật lúc: `{time_str}`"
 
-# Báo cáo riêng cho Vàng (khớp mã GOLD)
+# Báo cáo riêng cho Vàng
 def get_gold_report():
-    gold_msg = get_single_asset_report("GC=F", "VÀNG THẾ GIỚI (GOLD)")
+    gold_msg = get_single_asset_report("GC=F", "VÀNG THẾ GIỚI (CAUTURONG)")
     if not gold_msg:
         return None
     time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
     return f"{gold_msg}\n═══════════════════\n⏰ Cập nhật lúc: `{time_str}`"
 
-# --- HÀM LẮNG NGHE LỆNH CHAT TỪ TELEGRAM (ĐÃ TỐI ƯU) ---
+# --- HÀM LẮNG NGHE LỆNH CHAT TỪ TELEGRAM (ĐÃ FIX LỖI PHẢN HỒI) ---
 def check_telegram_commands():
     last_update_id = 0
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
@@ -206,7 +205,7 @@ def check_telegram_commands():
             print(f"Lỗi đọc lệnh Telegram: {e}")
             time.sleep(5)
 
-# --- VÒNG LẶP CHẠY BOT (CHỈ GỬI ĐỊNH KỲ TỪ THỨ 2 ĐẾN THỨ 6) ---
+# --- VÒNG LẶP CHẠY BOT (GỬI ĐỊNH KỲ TỪ THỨ 2 ĐẾN THỨ 6) ---
 def run_bot():
     print("🚀 Bot (CAUTURONG) đang chạy...")
     init_time = get_vn_time().strftime('%Y-%m-%d %H:%M:%S')
@@ -221,15 +220,14 @@ def run_bot():
     while True:
         try:
             now_vn = get_vn_time()
-            weekday = now_vn.weekday() # 0-4 là Thứ 2 đến Thứ 6, 5-6 là Thứ 7 & Chủ Nhật
+            weekday = now_vn.weekday() # 0-4 là Thứ 2 đến Thứ 6
             current_hour = now_vn.hour
             current_minute = now_vn.minute
             current_date = now_vn.date()
             
-            # Kiểm tra nếu là Thứ 7 hoặc Chủ Nhật thì bỏ qua báo cáo định kỳ
             if weekday >= 5:
-                print(f"Hôm nay là cuối tuần (Thứ 7 / Chủ Nhật). Bot tạm nghỉ thông báo tự động.")
-                time.sleep(300) # Ngủ 5 phút kiểm tra lại một lần
+                print(f"Hôm nay là cuối tuần. Bot tạm nghỉ thông báo tự động.")
+                time.sleep(300)
                 continue
 
             is_after_start = (current_hour > 5) or (current_hour == 5 and current_minute >= 0)
