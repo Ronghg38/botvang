@@ -156,34 +156,52 @@ def get_gold_report():
     time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
     return f"{gold_msg}\n═══════════════════\n⏰ Cập nhật lúc: `{time_str}`"
 
-# --- HÀM LẮNG NGHE LỆNH CHAT TỪ TELEGRAM ---
+# --- HÀM LẮNG NGHE LỆNH CHAT TỪ TELEGRAM (ĐÃ TỐI ƯU) ---
 def check_telegram_commands():
     last_update_id = 0
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
+    print("🤖 Luồng lắng nghe lệnh Telegram đã được kích hoạt.")
+    
     while True:
         try:
-            params = {"offset": last_update_id + 1, "timeout": 30}
-            response = requests.get(url, params=params, timeout=35)
+            params = {"offset": last_update_id + 1, "timeout": 25}
+            response = requests.get(url, params=params, timeout=30)
+            
+            if response.status_code != 200:
+                time.sleep(3)
+                continue
+                
             data = response.json()
             
             if data.get("ok") and data.get("result"):
                 for update in data["result"]:
                     last_update_id = update["update_id"]
-                    message = update.get("message", {})
-                    text = message.get("text", "").strip().lower()
                     
-                    if text in ["xem", "dau", "dầu"]:
-                        print("Nhận được lệnh Dầu. Đang gửi...")
+                    message = update.get("message")
+                    if not message:
+                        continue
+                        
+                    text = message.get("text")
+                    if not text:
+                        continue
+                        
+                    text_lower = text.strip().lower()
+                    print(f"📩 Nhận được tin nhắn: '{text}'")
+                    
+                    if text_lower in ["xem", "dau", "dầu"]:
+                        print("⚡ Đang xử lý và gửi báo cáo Dầu...")
                         report_msg = get_oil_report()
                         if report_msg:
                             send_telegram_message("⚡ *BẢN TIN DẦU THÔ THỰC TẾ*\n\n" + report_msg)
                             
-                    elif text in ["vang", "gold", "vàng", "vàn"]:
-                        print("Nhận được lệnh Vàng. Đang gửi...")
+                    elif text_lower in ["vang", "gold", "vàng", "vàn"]:
+                        print("⚡ Đang xử lý và gửi báo cáo Vàng...")
                         report_msg = get_gold_report()
                         if report_msg:
                             send_telegram_message("⚡ *BẢN TIN VÀNG THẾ GIỚI THỰC TẾ*\n\n" + report_msg)
                             
+        except requests.exceptions.Timeout:
+            continue
         except Exception as e:
             print(f"Lỗi đọc lệnh Telegram: {e}")
             time.sleep(5)
