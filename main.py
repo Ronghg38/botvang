@@ -20,10 +20,11 @@ def run_web():
 TELEGRAM_TOKEN = "8234059775:AAHk8kv9ruTGV_qsGbFXC7SgTxfRwWOO1BI"
 TELEGRAM_CHAT_ID = "5931570040"
 
-# 🛠️ ĐỘ LỆCH GIÁ SO VỚI TRADINGVIEW (Bạn có thể tinh chỉnh lại các con số này nếu cần)
+# 🛠️ ĐỘ LỆCH GIÁ SO VỚI TRADINGVIEW (Dựa trên ảnh so sánh của bạn để chỉnh khớp 100%)
+# Ví dụ nếu Bot đang lệch cao hơn TradingView, bạn trừ bớt đi ở đây:
 GOLD_OFFSET = -10.36 
-WTI_OFFSET = -1.84    
-BRENT_OFFSET = -1.54  
+WTI_OFFSET = -1.84    # Điều chỉnh độ lệch cho WTI (Ví dụ: 104.12 - 1.84 = 102.28 khớp USOIL)
+BRENT_OFFSET = -1.54  # Điều chỉnh độ lệch cho Brent (Ví dụ: 113.43 - 1.54 = 111.89 khớp UKOIL)
 
 # Múi giờ Việt Nam (UTC+7)
 VN_TZ = timezone(timedelta(hours=7))
@@ -47,10 +48,9 @@ def send_telegram_message(message):
         print(f"Lỗi gửi tin nhắn Telegram: {e}")
 
 def get_single_asset_report(symbol, title):
-    """Lấy dữ liệu khung 1 giờ (1h) và tính toán bám sát mốc mở cửa chuẩn từ 05:00 sáng"""
+    """Lấy dữ liệu và tính toán bám sát mốc mở cửa chuẩn từ 05:00 sáng"""
     try:
-        # Sử dụng interval="1h" để dữ liệu khớp chính xác khung 1 giờ
-        df = yf.download(symbol, period="7d", interval="1h", progress=False)
+        df = yf.download(symbol, period="3d", interval="15m", progress=False)
         if df.empty or len(df) < 5:
             return f"📌 *{title}*: ⚠️ Dữ liệu trống."
         if isinstance(df.columns, pd.MultiIndex):
@@ -111,7 +111,7 @@ def get_single_asset_report(symbol, title):
             change_day = round(((current_price - prev_day_close) / prev_day_close) * 100, 2)
             day_label = "So với hôm trước"
 
-        # --- HÀM TÍNH BIẾN ĐỘNG THEO KHUNG 1 GIỜ CHUẨN ---
+        # --- HÀM TÍNH BIẾN ĐỘNG THEO GIỜ ---
         def get_clean_hourly_change(hours_back):
             target_time = now_vn - timedelta(hours=hours_back)
             if target_time < morning_5am_today:
@@ -275,15 +275,4 @@ def run_bot():
             else:
                 print(f"Ngoài giờ thông báo ({current_hour}:{current_minute:02d}). Bot đang nghỉ.")
 
-            time.sleep(30)
-            
-        except Exception as e:
-            print(f"Lỗi vòng lặp báo cáo giá: {e}")
-            time.sleep(60)
-
-if __name__ == '__main__':
-    t = Thread(target=run_bot)
-    t.daemon = True
-    t.start()
-    
-    run_web()
+(phần còn lại giữ nguyên hoặc chạy tiếp đoạn code Flask phía dưới)
