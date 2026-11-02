@@ -46,11 +46,34 @@ def send_telegram_message(message):
         print(f"Lỗi gửi tin nhắn Telegram: {e}")
 
 def get_single_asset_report(symbol, title):
-    """Lấy dữ liệu và tính toán bám sát mốc mở cửa chuẩn từ 05:00 sáng"""
+    """Lấy dữ liệu và tính toán tỷ lệ phần trăm khớp chuẩn TradingView"""
     try:
-        df = yf.download(symbol, period="5d", interval="30m", progress=False)
-        if df.empty or len(df) < 5:
+        # Lấy dữ liệu khung Daily (1 ngày) để bắt chính xác giá Open mở cửa phiên và Close hiện tại
+        df_daily = yf.download(symbol, period="5d", interval="1d", progress=False)
+        if df_daily.empty or len(df_daily) < 2:
             return f"📌 *{title}*: ⚠️ Dữ liệu trống."
+        if isinstance(df_daily.columns, pd.MultiIndex):
+            df_daily.columns = df_daily.columns.droplevel(1)
+            
+        df_daily.index = pd.to_datetime(df_daily.index)
+        if df_daily.index.tz is not None:
+            df_daily.index = df_daily.index.tz_convert(VN_TZ)
+        else:
+            df_daily.index = df_daily.index.tz_localize('UTC').tz_convert(VN_TZ)
+
+        current_price = float(df_daily['Close'].iloc[-1])
+        open_price_today = float(df_daily['Open'].iloc[-1])
+        
+        if symbol == "GC=F":
+            current_price += GOLD_OFFSET
+            open_price_today += GOLD_OFFSET
+
+        # Tính chuẩn phần trăm biến động trong ngày hệt như TradingView: (Hiện tại - Mở cửa) / Mở cửa
+        change_day = round(((current_price - open_price_today) / open_price_today) * 100, 2)
+        day_label = "Mở cửa phiên"
+
+        # Lấy dữ liệu 30m để tính biến động theo giờ
+        df = yf.download(symbol, period="5d", interval="30m", progress=False)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.droplevel(1)
             
@@ -61,36 +84,12 @@ def get_single_asset_report(symbol, title):
             df.index = df.index.tz_localize('UTC').tz_convert(VN_TZ)
 
         closes = df['Close']
-        current_price = float(closes.iloc[-1])
-        
-        if symbol == "GC=F":
-            current_price += GOLD_OFFSET
-
         now_vn = get_vn_time()
         today_date = now_vn.date()
         
-        # Mốc mở cửa chính thức trong ngày: 05:00 sáng VN
         morning_5am_today = datetime(today_date.year, today_date.month, today_date.day, 5, 0, 0, tzinfo=VN_TZ)
         if now_vn < morning_5am_today:
             morning_5am_today = morning_5am_today - timedelta(days=1)
-
-        # Lọc dữ liệu từ mốc 05:00 sáng nay
-        df_today_session = df[df.index >= morning_5am_today]
-
-        if not df_today_session.empty:
-            open_price_today = float(df_today_session['Open'].iloc[0])
-            open_time_str = df_today_session.index[0].strftime('%H:%M %d/%m')
-            if symbol == "GC=F":
-                open_price_today += GOLD_OFFSET
-            change_day = round(((current_price - open_price_today) / open_price_today) * 100, 2)
-            day_label = f"Mở cửa lúc {open_time_str}"
-        else:
-            df_prev = df[df.index.date < today_date]
-            prev_day_close = float(df_prev['Close'].iloc[-1]) if not df_prev.empty else current_price
-            if symbol == "GC=F":
-                prev_day_close += GOLD_OFFSET
-            change_day = round(((current_price - prev_day_close) / prev_day_close) * 100, 2)
-            day_label = "So với hôm trước"
 
         # --- HÀM TÍNH BIẾN ĐỘNG THEO GIỜ (CHẶN ĐẦU TỪ MỐC 05:00 SÁNG) ---
         def get_clean_hourly_change(hours_back):
