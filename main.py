@@ -151,7 +151,7 @@ def get_gold_report():
     time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
     return f"{gold_msg}\n═══════════════════\n⏰ Cập nhật lúc: `{time_str}`"
 
-# --- HÀM LẮNG NGHE LỆNH CHAT TỪ TELEGRAM (ĐÃ MỞ RỘNG TỪ KHÓA) ---
+# --- HÀM LẮNG NGHE LỆNH CHAT TỪ TELEGRAM ---
 def check_telegram_commands():
     last_update_id = 0
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
@@ -170,14 +170,14 @@ def check_telegram_commands():
                     
                     print(f"📩 Nhận được tin nhắn từ Telegram: '{text}'")
                     
-                    # Hỗ trợ tất cả các biến thể gõ lệnh cho Dầu
-                    if text in ["xem", "/xem", "dau", "/dau", "dầu", "/dầu"]:
+                    # Thêm đầy đủ các biến thể từ khóa cho Dầu (bao gồm 'đầu', '/đầu', 'dau', 'xem'...)
+                    if text in ["xem", "/xem", "dau", "/dau", "dầu", "/dầu", "đầu", "/đầu"]:
                         print("⚡ Đang xử lý và gửi báo cáo Dầu...")
                         report_msg = get_oil_report()
                         if report_msg:
                             send_telegram_message("⚡ *BẢN TIN DẦU THÔ THỰC TẾ*\n\n" + report_msg)
                             
-                    # Hỗ trợ tất cả các biến thể gõ lệnh cho Vàng
+                    # Các biến thể từ khóa cho Vàng
                     elif text in ["vang", "/vang", "vàng", "/vàng"]:
                         print("⚡ Đang xử lý và gửi báo cáo Vàng...")
                         report_msg = get_gold_report()
@@ -224,7 +224,7 @@ def run_bot():
                         send_telegram_message(report_msg)
                     last_sent_slot = slot_name
             else:
-                pass # Bớt log rườm rà ngoài giờ
+                pass
 
             time.sleep(30)
             
