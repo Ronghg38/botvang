@@ -1,517 +1,248 @@
-
-import os
-import time
-import logging
-from io import BytesIO
-from datetime import datetime, timedelta, timezone
-from threading import Thread, Lock
-
+Import time
 import requests
-import pandas as pd
 import yfinance as yf
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from flask import Flask, jsonify
+import pandas as pd
+from datetime import datetime, timedelta, timezone
+from threading import Thread
+from flask import Flask
 
-# =====================================
-# CAUTURONG - BOT BAO GIA DAU VA VANG
-# =====================================
-
+# --- CẤU HÌNH WEB SERVER CHO RENDER ---
 app = Flask(__name__)
 
+@app.route('/')
+def home():
+    return "Oil Price Bot (CAUTURONG) is running 24/7!"
+
+def run_web():
+    # Tắt hoàn toàn debug và reloader để tránh Flask tự khởi động lại làm sập bot
+    app.run(host='0.0.0.0', port=10000, debug=False, use_reloader=False)
+
+# --- CẤU HÌNH THÔNG TIN BOT ---
+TELEGRAM_TOKEN = "8234059775:AAHk8kv9ruTGV_qsGbFXC7SgTxfRwWOO1BI"
+TELEGRAM_CHAT_ID = "5931570040"
+
+# 🛠️ ĐỘ LỆCH GIÁ VÀNG SO VỚI TRADINGVIEW
+GOLD_OFFSET = -10.36 
+
+# Múi giờ Việt Nam (UTC+7)
 VN_TZ = timezone(timedelta(hours=7))
 
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
-PORT = int(os.getenv("PORT", "10000"))
-
-GOLD_OFFSET = float(os.getenv("GOLD_OFFSET", "0"))
-SCHEDULE_GOLD = os.getenv("SCHEDULE_GOLD", "false").lower() == "true"
-
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("CAUTURONG")
-
-http = requests.Session()
-send_lock = Lock()
-
-ASSETS = {
-    "wti": ("CL=F", "DAU THO WTI"),
-    "brent": ("BZ=F", "DAU THO BRENT"),
-    "gold": ("GC=F", "VANG THE GIOI")
-}
-
-
-def vn_now():
+def get_vn_time():
+    """Lấy thời gian chuẩn theo giờ Việt Nam"""
     return datetime.now(VN_TZ)
 
-
-@app.route("/")
-def home():
-    return jsonify({
-        "bot": "CAUTURONG",
-        "status": "running",
-        "time": vn_now().isoformat()
-    })
-
-
-@app.route("/health")
-def health():
-    return jsonify({"status": "ok"})
-
-
-def telegram_api(method, payload):
-    url = f"https://api.telegram.org/bot{TOKEN}/{method}"
-
-    response = http.post(
-        url,
-        json=payload,
-        timeout=20
-    )
-
-    response.raise_for_status()
-
-    result = response.json()
-
-    if not result.get("ok"):
-        raise RuntimeError(str(result))
-
-    return result
-
-
-def send_message(message):
-    if not TOKEN or not CHAT_ID:
-        log.error("Chua cau hinh Telegram")
-        return
-
+def send_telegram_message(message):
+    """Gửi thông báo văn bản tới Telegram"""
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
     try:
-        with send_lock:
-            telegram_api("sendMessage", {
-                "chat_id": CHAT_ID,
-                "text": message
-            })
+        response = requests.post(url, json=payload, timeout=10)
+        return response.json()
+    except Exception as e:
+        print(f"Lỗi gửi tin nhắn Telegram: {e}")
 
-    except Exception:
-        log.exception("Loi gui Telegram")
-
-
-def send_photo(photo, caption):
+def get_single_asset_report(symbol, title):
+    """Lấy dữ liệu và tính toán bám sát mốc mở cửa chuẩn từ 05:00 sáng"""
     try:
-        url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
-
-        with send_lock:
-            response = http.post(
-                url,
-                data={
-                    "chat_id": CHAT_ID,
-                    "caption": caption
-                },
-                files={
-                    "photo": (
-                        "chart.png",
-                        photo,
-                        "image/png"
-                    )
-                },
-                timeout=30
-            )
-
-        response.raise_for_status()
-
-    except Exception:
-        log.exception("Loi gui bieu do")
-
-
-def get_data(symbol):
-
-    df = yf.download(
-        symbol,
-        period="5d",
-        interval="30m",
-        progress=False,
-        auto_adjust=False,
-        threads=False
-    )
-
-    if df.empty:
-        raise ValueError("Khong co du lieu")
-
-    if isinstance(df.columns, pd.MultiIndex):
-        if "Close" in df.columns.get_level_values(0):
-            df.columns = df.columns.get_level_values(0)
+        df = yf.download(symbol, period="5d", interval="30m", progress=False)
+        if df.empty or len(df) < 5:
+            return f"📌 *{title}*: ⚠️ Dữ liệu trống."
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.droplevel(1)
+            
+        df.index = pd.to_datetime(df.index)
+        if df.index.tz is not None:
+            df.index = df.index.tz_convert(VN_TZ)
         else:
-            df.columns = df.columns.get_level_values(-1)
+            df.index = df.index.tz_localize('UTC').tz_convert(VN_TZ)
 
-    df = df.copy()
+        closes = df['Close']
+        current_price = float(closes.iloc[-1])
+        
+        if symbol == "GC=F":
+            current_price += GOLD_OFFSET
 
-    idx = pd.to_datetime(df.index)
+        now_vn = get_vn_time()
+        today_date = now_vn.date()
+        
+        # Mốc mở cửa chính thức trong ngày: 05:00 sáng VN
+        morning_5am_today = datetime(today_date.year, today_date.month, today_date.day, 5, 0, 0, tzinfo=VN_TZ)
+        if now_vn < morning_5am_today:
+            morning_5am_today = morning_5am_today - timedelta(days=1)
 
-    if idx.tz is None:
-        idx = idx.tz_localize("UTC")
+        # Lọc dữ liệu từ mốc 05:00 sáng nay
+        df_today_session = df[df.index >= morning_5am_today]
 
-    df.index = idx.tz_convert(VN_TZ)
-
-    return df.sort_index()
-
-
-def asset_report(key):
-
-    symbol, title = ASSETS[key]
-
-    try:
-        df = get_data(symbol)
-
-        close = pd.to_numeric(
-            df["Close"], errors="coerce"
-        ).dropna()
-
-        if close.empty:
-            raise ValueError("Gia khong hop le")
-
-        offset = GOLD_OFFSET if key == "gold" else 0
-
-        current = float(close.iloc[-1]) + offset
-
-        now = vn_now()
-
-        last_time = close.index[-1]
-
-        age = int(
-            (now - last_time).total_seconds() / 60
-        )
-
-        start = now.replace(
-            hour=5,
-            minute=0,
-            second=0,
-            microsecond=0
-        )
-
-        if now < start:
-            start -= timedelta(days=1)
-
-        session = df[df.index >= start]
-
-        if not session.empty:
-            base = float(session["Open"].iloc[0]) + offset
+        if not df_today_session.empty:
+            open_price_today = float(df_today_session['Open'].iloc[0])
+            open_time_str = df_today_session.index[0].strftime('%H:%M %d/%m')
+            if symbol == "GC=F":
+                open_price_today += GOLD_OFFSET
+            change_day = round(((current_price - open_price_today) / open_price_today) * 100, 2)
+            day_label = f"Mở cửa lúc {open_time_str}"
         else:
-            previous = close[close.index < start]
+            df_prev = df[df.index.date < today_date]
+            prev_day_close = float(df_prev['Close'].iloc[-1]) if not df_prev.empty else current_price
+            if symbol == "GC=F":
+                prev_day_close += GOLD_OFFSET
+            change_day = round(((current_price - prev_day_close) / prev_day_close) * 100, 2)
+            day_label = "So với hôm trước"
 
-            if previous.empty:
-                base = current
-            else:
-                base = float(previous.iloc[-1]) + offset
+        # --- HÀM TÍNH BIẾN ĐỘNG THEO GIỜ (CHẶN ĐẦU TỪ MỐC 05:00 SÁNG) ---
+        def get_clean_hourly_change(hours_back):
+            target_time = now_vn - timedelta(hours=hours_back)
+            if target_time < morning_5am_today:
+                target_time = morning_5am_today
+                
+            idx = df.index.get_indexer([target_time], method='nearest')[0]
+            past_price = float(closes.iloc[idx])
+            if symbol == "GC=F":
+                past_price += GOLD_OFFSET
+            past_time_str = df.index[idx].strftime('%H:%M %d/%m')
+            pct = ((current_price - past_price) / past_price) * 100
+            return round(pct, 2), past_time_str
 
-        day_change = (
-            (current - base) / base * 100
-            if base else 0
-        )
+        pct_1h, time_1h = get_clean_hourly_change(1)
+        pct_2h, time_2h = get_clean_hourly_change(2)
+        pct_3h, time_3h = get_clean_hourly_change(3)
+        pct_4h, time_4h = get_clean_hourly_change(4)
 
-        lines = [
-            f"📊 {title}",
-            f"💰 Gia hien tai: {current:.2f} USD",
-            f"🕒 Nen du lieu: {last_time:%H:%M %d/%m}",
-            "",
-            "BIEN DONG THEO GIO:"
-        ]
+        def format_line(val, hours_label, t_str):
+            icon = "🟢" if val >= 0 else "🔴"
+            sign = "+" if val >= 0 else ""
+            return f"{icon} `{sign}{val}%` | {hours_label} ({t_str})\n"
 
-        for hours in [1, 2, 3, 4]:
-
-            target = now - timedelta(hours=hours)
-
-            if target < start:
-                target = start
-
-            past = close[close.index <= target]
-
-            if past.empty:
-                lines.append(
-                    f"{hours} gio: Chua du du lieu"
-                )
-                continue
-
-            old = float(past.iloc[-1]) + offset
-
-            change = (
-                (current - old) / old * 100
-                if old else 0
-            )
-
-            icon = "🟢" if change >= 0 else "🔴"
-
-            lines.append(
-                f"{icon} {hours} gio: {change:+.2f}%"
-            )
-
-        icon = "🟢" if day_change >= 0 else "🔴"
-
-        lines += [
-            "",
-            "BIEN DONG TRONG NGAY:",
-            f"{icon} {day_change:+.2f}%",
-            "",
-            f"Du lieu cach hien tai: {age} phut",
-            "",
-            "Nguon: Yahoo Finance Futures.",
-            "Gia tham khao, khong phai gia Platts/Singapore."
-        ]
-
-        if age > 90:
-            lines.append(
-                "⚠️ Canh bao: Du lieu co the da cu."
-            )
-
-        return "\n".join(lines)
+        icon_title = "🟡" if "VÀNG" in title else "🛢️"
+        
+        msg = f"{icon_title} *{title}*\n"
+        msg += f"💵 Giá hiện tại: **{current_price:.2f}$**\n"
+        msg += f"───────────────────\n"
+        msg += f"• Biến động theo giờ:\n"
+        msg += format_line(pct_1h, "1 giờ", time_1h)
+        msg += format_line(pct_2h, "2 giờ", time_2h)
+        msg += format_line(pct_3h, "3 giờ", time_3h)
+        msg += format_line(pct_4h, "4 giờ", time_4h)
+        msg += f"───────────────────\n"
+        
+        day_icon = "🟢" if change_day >= 0 else "🔴"
+        day_sign = "+" if change_day >= 0 else ""
+        msg += f"📊 Biến động trong ngày:\n"
+        msg += f"{day_icon} `{day_sign}{change_day}%` ({day_label})\n"
+        
+        return msg
 
     except Exception as e:
+        print(f"Lỗi lấy dữ liệu {title}: {e}")
+        return f"📌 *{title}*: ⚠️ Không thể lấy dữ liệu lúc này.\n"
 
-        log.exception("Loi lay gia")
+# Báo cáo riêng cho Dầu (khớp mã USOIL, UKOIL)
+def get_oil_report():
+    wti_msg = get_single_asset_report("CL=F", "DẦU THÔ WTI (USOIL)")
+    brent_msg = get_single_asset_report("BZ=F", "DẦU THÔ BRENT (UKOIL)")
+    if not wti_msg and not brent_msg:
+        return None
+    time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
+    return f"{wti_msg}\n═══════════════════\n{brent_msg}\n═══════════════════\n⏰ Cập nhật lúc: `{time_str}`"
 
-        return f"⚠️ {title}: Khong lay duoc du lieu."
+# Báo cáo riêng cho Vàng (khớp mã GOLD)
+def get_gold_report():
+    gold_msg = get_single_asset_report("GC=F", "VÀNG THẾ GIỚI (GOLD)")
+    if not gold_msg:
+        return None
+    time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
+    return f"{gold_msg}\n═══════════════════\n⏰ Cập nhật lúc: `{time_str}`"
 
-
-def oil_report():
-
-    return (
-        "🛢️ BAO CAO GIA DAU CAUTURONG\n\n"
-        + asset_report("wti")
-        + "\n\n--------------------\n\n"
-        + asset_report("brent")
-        + "\n\nCap nhat: "
-        + vn_now().strftime("%H:%M %d/%m/%Y")
-    )
-
-
-def gold_report():
-
-    return (
-        "🟡 BAO CAO GIA VANG CAUTURONG\n\n"
-        + asset_report("gold")
-        + "\n\nCap nhat: "
-        + vn_now().strftime("%H:%M %d/%m/%Y")
-    )
-
-
-def make_chart(key):
-
-    symbol, title = ASSETS[key]
-
-    df = get_data(symbol).tail(48)
-
-    offset = GOLD_OFFSET if key == "gold" else 0
-
-    prices = df["Close"].dropna() + offset
-
-    fig, ax = plt.subplots(figsize=(10, 5))
-
-    ax.plot(prices.index, prices.values)
-
-    ax.set_title(title)
-
-    ax.set_xlabel("Gio Viet Nam")
-
-    ax.set_ylabel("USD")
-
-    ax.grid(True)
-
-    fig.autofmt_xdate()
-
-    output = BytesIO()
-
-    fig.savefig(
-        output,
-        format="png",
-        dpi=150
-    )
-
-    plt.close(fig)
-
-    output.seek(0)
-
-    return output
-
-
-def send_chart(key):
-
-    try:
-        photo = make_chart(key)
-
-        send_photo(
-            photo,
-            f"Bieu do {ASSETS[key][1]}"
-        )
-
-    except Exception:
-        log.exception("Loi tao bieu do")
-
-
-def help_text():
-
-    return """
-🤖 BOT CAUTURONG
-
-xem - Bao cao gia dau
-vang - Bao cao gia vang
-tatca - Bao cao tat ca
-bieudo - Bieu do dau
-bieudovang - Bieu do vang
-help - Huong dan
-
-Du lieu mang tinh tham khao.
-"""
-
-
-def process_command(command):
-
-    command = command.strip().lower().replace("/", "")
-
-    if command in ["start", "help"]:
-
-        send_message(help_text())
-
-    elif command == "xem":
-
-        send_message(oil_report())
-
-    elif command == "vang":
-
-        send_message(gold_report())
-
-    elif command == "tatca":
-
-        send_message(
-            oil_report()
-            + "\n\n"
-            + gold_report()
-        )
-
-    elif command == "bieudo":
-
-        send_message("Dang tao bieu do dau...")
-
-        send_chart("wti")
-        send_chart("brent")
-
-    elif command == "bieudovang":
-
-        send_message("Dang tao bieu do vang...")
-
-        send_chart("gold")
-
-
-def telegram_listener():
-
-    offset = None
-
+# --- HÀM LẮNG NGHE LỆNH CHAT TỪ TELEGRAM ---
+def check_telegram_commands():
+    last_update_id = 0
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
     while True:
-
         try:
-
-            params = {"timeout": 25}
-
-            if offset is not None:
-                params["offset"] = offset
-
-            response = http.get(
-                f"https://api.telegram.org/bot{TOKEN}/getUpdates",
-                params=params,
-                timeout=35
-            )
-
-            response.raise_for_status()
-
+            params = {"offset": last_update_id + 1, "timeout": 30}
+            response = requests.get(url, params=params, timeout=35)
             data = response.json()
-
-            for update in data.get("result", []):
-
-                offset = update["update_id"] + 1
-
-                message = update.get("message", {})
-
-                chat = str(
-                    message.get("chat", {}).get("id", "")
-                )
-
-                command = message.get("text", "")
-
-                if chat != str(CHAT_ID):
-                    continue
-
-                if command:
-                    process_command(command)
-
-        except Exception:
-
-            log.exception("Loi Telegram")
-
+            
+            if data.get("ok") and data.get("result"):
+                for update in data["result"]:
+                    last_update_id = update["update_id"]
+                    message = update.get("message", {})
+                    text = message.get("text", "").strip().lower()
+                    
+                    if text in ["xem", "dau", "dầu"]:
+                        print("Nhận được lệnh Dầu. Đang gửi...")
+                        report_msg = get_oil_report()
+                        if report_msg:
+                            send_telegram_message("⚡ *BẢN TIN DẦU THÔ THỰC TẾ*\n\n" + report_msg)
+                            
+                    elif text in ["vang", "gold", "vàng", "vàn"]:
+                        print("Nhận được lệnh Vàng. Đang gửi...")
+                        report_msg = get_gold_report()
+                        if report_msg:
+                            send_telegram_message("⚡ *BẢN TIN VÀNG THẾ GIỚI THỰC TẾ*\n\n" + report_msg)
+                            
+        except Exception as e:
+            print(f"Lỗi đọc lệnh Telegram: {e}")
             time.sleep(5)
 
+# --- VÒNG LẶP CHẠY BOT (CHỈ GỬI ĐỊNH KỲ TỪ THỨ 2 ĐẾN THỨ 6) ---
+def run_bot():
+    print("🚀 Bot (CAUTURONG) đang chạy...")
+    init_time = get_vn_time().strftime('%Y-%m-%d %H:%M:%S')
+    send_telegram_message(f"🚀 *Bot Báo Giá (CAUTURONG)* đã khởi động thành công lúc `{init_time}`!")
 
-def scheduler():
+    cmd_thread = Thread(target=check_telegram_commands)
+    cmd_thread.daemon = True
+    cmd_thread.start()
 
-    last_slot = None
+    last_sent_slot = ""
 
     while True:
-
         try:
+            now_vn = get_vn_time()
+            weekday = now_vn.weekday() # 0-4 là Thứ 2 đến Thứ 6, 5-6 là Thứ 7 & Chủ Nhật
+            current_hour = now_vn.hour
+            current_minute = now_vn.minute
+            current_date = now_vn.date()
+            
+            # Kiểm tra nếu là Thứ 7 hoặc Chủ Nhật thì bỏ qua báo cáo định kỳ
+            if weekday >= 5:
+                print(f"Hôm nay là cuối tuần (Thứ 7 / Chủ Nhật). Bot tạm nghỉ thông báo tự động.")
+                time.sleep(300) # Ngủ 5 phút kiểm tra lại một lần
+                continue
 
-            now = vn_now()
+            is_after_start = (current_hour > 5) or (current_hour == 5 and current_minute >= 0)
+            is_before_end = (current_hour < 21) or (current_hour == 21 and current_minute <= 0)
+            is_allowed_time = is_after_start and is_before_end
+            
+            if is_allowed_time:
+                if 0 <= current_minute <= 5:
+                    slot_name = f"{current_date}-{current_hour}"
+                else:
+                    slot_name = None
 
-            if (
-                5 <= now.hour <= 21
-                and now.minute == 0
-            ):
-
-                slot = now.strftime("%Y%m%d%H")
-
-                if slot != last_slot:
-
-                    message = oil_report()
-
-                    if SCHEDULE_GOLD:
-                        message += "\n\n" + gold_report()
-
-                    send_message(message)
-
-                    last_slot = slot
-
-            time.sleep(15)
-
-        except Exception:
-
-            log.exception("Loi lich gui")
+                if slot_name and last_sent_slot != slot_name:
+                    print(f"Đang gửi báo cáo định kỳ lúc {current_hour}:{current_minute:02d}...")
+                    report_msg = get_oil_report()
+                    if report_msg:
+                        send_telegram_message(report_msg)
+                    last_sent_slot = slot_name
+            else:
+                print(f"Ngoài giờ thông báo ({current_hour}:{current_minute:02d}). Bot đang nghỉ.")
 
             time.sleep(30)
+            
+        except Exception as e:
+            print(f"Lỗi vòng lặp báo cáo giá: {e}")
+            time.sleep(60)
 
-
-def main():
-
-    if not TOKEN or not CHAT_ID:
-        raise RuntimeError(
-            "Thieu TELEGRAM_BOT_TOKEN hoac TELEGRAM_CHAT_ID"
-        )
-
-    send_message(
-        "🚀 BOT CAUTURONG DA KHOI DONG!"
-    )
-
-    Thread(
-        target=telegram_listener,
-        daemon=True
-    ).start()
-
-    Thread(
-        target=scheduler,
-        daemon=True
-    ).start()
-
-    app.run(
-        host="0.0.0.0",
-        port=PORT,
-        debug=False,
-        use_reloader=False
-    )
-
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    t = Thread(target=run_bot)
+    t.daemon = True
+    t.start()
+    
+    run_web()
+Kiểm tra lổi khi gửi xem , vang không phản hồi
