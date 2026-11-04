@@ -245,4 +245,3 @@ if __name__ == '__main__':
     t.start()
     
     run_web()
-Kiểm tra lổi khi gửi xem , vang không phản hồi
