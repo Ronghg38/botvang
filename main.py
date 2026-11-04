@@ -91,9 +91,9 @@ def send_telegram_photo(buf, caption):
     except Exception as e:
         print(f"Lỗi gửi ảnh biểu đồ: {e}")
 
-# --- HÀM LẤY DỮ LIỆU VÀ TÍNH TOÁN ---
+# --- HÀM LẤY DỮ LIỆU VÀ TÍNH TOÁN CHO TỪNG TÀI SẢN ---
 def get_single_asset_report(symbol, title):
-    """Lấy dữ liệu, tính biến động (Giờ, Ngày, Tuần, Tháng) và lưu lịch sử"""
+    """Lấy dữ liệu, tính biến động (1 giờ, 24 giờ, 1 tuần, 1 tháng) và lưu lịch sử"""
     try:
         # Lấy dữ liệu 1 tháng để tính toán đầy đủ các khung thời gian
         df = yf.download(symbol, period="1mo", interval="1h", progress=False)
@@ -146,7 +146,7 @@ def get_single_asset_report(symbol, title):
         msg = f"{icon_title} *{title}*\n"
         msg += f"💵 Giá hiện tại: **{current_price:.2f}$**\n"
         msg += f"───────────────────\n"
-        msg += f"📊 Biến động thị trường:\n"
+        msg += f"📊 Thống kê biến động:\n"
         msg += format_line(pct_1h, f"1 giờ qua (lúc {time_1h})")
         msg += format_line(pct_24h, "24 giờ qua")
         msg += format_line(pct_1wk, "1 tuần qua")
@@ -159,6 +159,7 @@ def get_single_asset_report(symbol, title):
         print(f"Lỗi lấy dữ liệu {title}: {e}")
         return f"📌 *{title}*: ⚠️ Không thể lấy dữ liệu lúc này.\n"
 
+# Các hàm báo cáo nhóm tài sản
 def get_oil_report():
     wti_msg = get_single_asset_report("CL=F", "DẦU THÔ WTI (USOIL)")
     brent_msg = get_single_asset_report("BZ=F", "DẦU THÔ BRENT (UKOIL)")
@@ -169,6 +170,13 @@ def get_gold_report():
     gold_msg = get_single_asset_report("GC=F", "VÀNG THẾ GIỚI (GOLD)")
     time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
     return f"{gold_msg}\n═══════════════════\n⏰ Cập nhật lúc: `{time_str}`"
+
+def get_all_market_report():
+    """Báo cáo gộp chung cả Dầu và Vàng"""
+    wti_msg = get_single_asset_report("CL=F", "DẦU THÔ WTI (USOIL)")
+    gold_msg = get_single_asset_report("GC=F", "VÀNG THẾ GIỚI (GOLD)")
+    time_str = get_vn_time().strftime('%H:%M - %d/%m/%Y')
+    return f"⚡ *BẢN TIN THỊ TRƯỜNG TỔNG HỢP*\n\n{wti_msg}\n═══════════════════\n{gold_msg}\n═══════════════════\n⏰ Cập nhật lúc: `{time_str}`"
 
 # --- HÀM VẼ BIỂU ĐỒ XU HƯỚNG TỪ DATABASE ---
 def generate_and_send_chart(symbol, title):
@@ -233,6 +241,11 @@ def check_telegram_commands():
                         report_msg = get_gold_report()
                         send_telegram_message("⚡ *BẢN TIN VÀNG THẾ GIỚI*\n\n" + report_msg)
 
+                    elif text in ["chung", "all", "tonghop", "tổng hợp"]:
+                        print("Nhận lệnh Tổng hợp. Đang gửi...")
+                        report_msg = get_all_market_report()
+                        send_telegram_message(report_msg)
+
                     elif text in ["bieudo dau", "biểu đồ dầu", "chart dau"]:
                         print("Gửi biểu đồ Dầu WTI...")
                         generate_and_send_chart("CL=F", "DẦU THÔ WTI (USOIL)")
@@ -246,9 +259,10 @@ def check_telegram_commands():
                             "🤖 *HƯỚNG DẪN SỬ DỤNG BOT CAUTURONG*\n\n"
                             "• `dau` hoặc `xem`: Xem báo cáo giá Dầu (WTI & Brent)\n"
                             "• `vang` hoặc `gold`: Xem báo cáo giá Vàng Thế Giới\n"
+                            "• `chung`: Xem bảng tổng hợp cả Dầu và Vàng\n"
                             "• `bieudo dau`: Nhận ảnh biểu đồ xu hướng Dầu\n"
                             "• `bieudo vang`: Nhận ảnh biểu đồ xu hướng Vàng\n\n"
-                            "⏱️ *Bot tự động gửi bản tin hàng giờ (Thứ 2 đến Thứ 6).*_ "
+                            "⏱️ *Bot tự động gửi bản tin hằng giờ (Thứ 2 đến Thứ 6).*_"
                         )
                         send_telegram_message(help_msg)
                             
@@ -295,7 +309,7 @@ def run_bot():
 
                 if slot_name and last_sent_slot != slot_name:
                     print(f"Đang gửi báo cáo định kỳ lúc {current_hour}:{current_minute:02d}...")
-                    report_msg = get_oil_report()
+                    report_msg = get_oil_report() # Giữ nguyên báo cáo hằng giờ cũ cho Dầu (hoặc bạn có thể đổi thành get_all_market_report() nếu muốn gửi cả Vàng hằng giờ)
                     send_telegram_message(report_msg)
                     last_sent_slot = slot_name
             else:
