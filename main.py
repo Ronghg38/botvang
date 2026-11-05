@@ -25,8 +25,10 @@ def run_web():
 TELEGRAM_TOKEN = "8234059775:AAHk8kv9ruTGV_qsGbFXC7SgTxfRwWOO1BI"
 TELEGRAM_CHAT_ID = "5931570040"
 
-# 🛠️ ĐỘ LỆCH GIÁ VÀNG SO VỚI TRADINGVIEW
+# 🛠️ ĐỘ LỆCH GIÁ SO VỚI TRADINGVIEW
 GOLD_OFFSET = -10.36 
+OIL_WTI_OFFSET = -0.12   
+OIL_BRENT_OFFSET = -0.08 
 
 # Múi giờ Việt Nam (UTC+7)
 VN_TZ = timezone(timedelta(hours=7))
@@ -93,9 +95,8 @@ def send_telegram_photo(buf, caption):
 
 # --- HÀM LẤY DỮ LIỆU VÀ TÍNH TOÁN CHO TỪNG TÀI SẢN ---
 def get_single_asset_report(symbol, title):
-    """Lấy dữ liệu, tính biến động (1 giờ, 24 giờ, 1 tuần, 1 tháng) và lưu lịch sử"""
+    """Lấy dữ liệu, tính biến động chuẩn TradingView (Trong ngày, 1 giờ, 1 tuần, 1 tháng) và lưu lịch sử"""
     try:
-        # Lấy dữ liệu 1 tháng để tính toán đầy đủ các khung thời gian
         df = yf.download(symbol, period="1mo", interval="1h", progress=False)
         if df.empty or len(df) < 5:
             return f"📌 *{title}*: ⚠️ Dữ liệu trống."
@@ -112,27 +113,57 @@ def get_single_asset_report(symbol, title):
         closes = df['Close']
         current_price = float(closes.iloc[-1])
         
+        # Áp dụng độ lệch (Offset)
         if symbol == "GC=F":
             current_price += GOLD_OFFSET
+        elif symbol == "CL=F":
+            current_price += OIL_WTI_OFFSET
+        elif symbol == "BZ=F":
+            current_price += OIL_BRENT_OFFSET
 
         # Lưu giá hiện tại vào database lịch sử
         save_price_to_db(symbol, current_price)
 
         now_vn = get_vn_time()
+        today_date = now_vn.date()
         
-        # Hàm tính biến động theo mốc thời gian cách hiện tại (số giờ)
+        # Mốc mở cửa chính thức trong ngày: 05:00 sáng VN (giống TradingView)
+        morning_5am_today = datetime(today_date.year, today_date.month, today_date.day, 5, 0, 0, tzinfo=VN_TZ)
+        if now_vn < morning_5am_today:
+            morning_5am_today = morning_5am_today - timedelta(days=1)
+
+        # 1. Tính biến động TRONG NGÀY (so với mốc 05:00 sáng)
+        df_today_session = df[df.index >= morning_5am_today]
+        if not df_today_session.empty:
+            open_price_today = float(df_today_session['Open'].iloc[0])
+            if symbol == "GC=F":
+                open_price_today += GOLD_OFFSET
+            elif symbol == "CL=F":
+                open_price_today += OIL_WTI_OFFSET
+            elif symbol == "BZ=F":
+                open_price_today += OIL_BRENT_OFFSET
+            pct_day = round(((current_price - open_price_today) / open_price_today) * 100, 2)
+        else:
+            pct_day = 0.0
+
+        # Hàm tính biến động theo mốc thời gian cách hiện tại (số giờ) cho 1h, 1 tuần, 1 tháng
         def get_past_change(hours_ago):
             target_time = now_vn - timedelta(hours=hours_ago)
             idx = df.index.get_indexer([target_time], method='nearest')[0]
             past_price = float(closes.iloc[idx])
+            
             if symbol == "GC=F":
                 past_price += GOLD_OFFSET
+            elif symbol == "CL=F":
+                past_price += OIL_WTI_OFFSET
+            elif symbol == "BZ=F":
+                past_price += OIL_BRENT_OFFSET
+                
             pct = ((current_price - past_price) / past_price) * 100
             past_time_str = df.index[idx].strftime('%H:%M %d/%m')
             return round(pct, 2), past_time_str
 
         pct_1h, time_1h = get_past_change(1)
-        pct_24h, _ = get_past_change(24)
         pct_1wk, _ = get_past_change(168) # 7 ngày * 24h
         pct_1mo, _ = get_past_change(720) # 30 ngày * 24h
 
@@ -148,7 +179,7 @@ def get_single_asset_report(symbol, title):
         msg += f"───────────────────\n"
         msg += f"📊 Thống kê biến động:\n"
         msg += format_line(pct_1h, f"1 giờ qua (lúc {time_1h})")
-        msg += format_line(pct_24h, "24 giờ qua")
+        msg += format_line(pct_day, "Trong ngày (từ 05:00 sáng)")
         msg += format_line(pct_1wk, "1 tuần qua")
         msg += format_line(pct_1mo, "1 tháng qua")
         msg += f"───────────────────\n"
@@ -193,7 +224,6 @@ def generate_and_send_chart(symbol, title):
 
         df_db = df_db.sort_values('timestamp')
         
-        # Vẽ biểu đồ Matplotlib
         plt.figure(figsize=(10, 5))
         plt.plot(pd.to_datetime(df_db['timestamp']), df_db['price'], marker='o', color='tab:blue', linewidth=2, markersize=4)
         plt.title(f"Biểu đồ biến động {title} (Lịch sử Bot)", fontsize=14, fontweight='bold')
@@ -203,7 +233,6 @@ def generate_and_send_chart(symbol, title):
         plt.xticks(rotation=25)
         plt.tight_layout()
 
-        # Lưu vào buffer bộ nhớ
         buf = io.BytesIO()
         plt.savefig(buf, format='png', dpi=150)
         buf.seek(0)
@@ -231,17 +260,17 @@ def check_telegram_commands():
                     message = update.get("message", {})
                     text = message.get("text", "").strip().lower()
                     
-                    if text in ["Xem", "Dau", "Dầu"]:
+                    if text in ["xem", "dau", "dầu"]:
                         print("Nhận lệnh Dầu. Đang gửi...")
                         report_msg = get_oil_report()
                         send_telegram_message("⚡ *BẢN TIN DẦU THÔ*\n\n" + report_msg)
                             
-                    elif text in ["Vang", "gold", "Vàng", "vàn"]:
+                    elif text in ["vang", "gold", "vàng", "vàn"]:
                         print("Nhận lệnh Vàng. Đang gửi...")
                         report_msg = get_gold_report()
                         send_telegram_message("⚡ *BẢN TIN VÀNG THẾ GIỚI*\n\n" + report_msg)
 
-                    elif text in ["Chung", "all", "tonghop", "tổng hợp"]:
+                    elif text in ["chung", "all", "tonghop", "tổng hợp"]:
                         print("Nhận lệnh Tổng hợp. Đang gửi...")
                         report_msg = get_all_market_report()
                         send_telegram_message(report_msg)
@@ -272,7 +301,7 @@ def check_telegram_commands():
 
 # --- VÒNG LẶP CHẠY BOT ĐỊNH KỲ ---
 def run_bot():
-    init_db() # Khởi tạo database khi khởi động
+    init_db() 
     print("🚀 Bot (CAUTURONG) đang chạy...")
     init_time = get_vn_time().strftime('%Y-%m-%d %H:%M:%S')
     send_telegram_message(f"🚀 *Bot Báo Giá (CAUTURONG)* đã khởi động thành công lúc `{init_time}`!")
@@ -291,7 +320,6 @@ def run_bot():
             current_minute = now_vn.minute
             current_date = now_vn.date()
             
-            # Tạm nghỉ tự động vào cuối tuần
             if weekday >= 5:
                 print(f"Hôm nay là cuối tuần. Bot tạm nghỉ thông báo tự động.")
                 time.sleep(300)
@@ -309,7 +337,7 @@ def run_bot():
 
                 if slot_name and last_sent_slot != slot_name:
                     print(f"Đang gửi báo cáo định kỳ lúc {current_hour}:{current_minute:02d}...")
-                    report_msg = get_oil_report() # Giữ nguyên báo cáo hằng giờ cũ cho Dầu (hoặc bạn có thể đổi thành get_all_market_report() nếu muốn gửi cả Vàng hằng giờ)
+                    report_msg = get_oil_report()
                     send_telegram_message(report_msg)
                     last_sent_slot = slot_name
             else:
@@ -322,10 +350,8 @@ def run_bot():
             time.sleep(60)
 
 if __name__ == '__main__':
-    # Chạy vòng lặp bot ở luồng phụ
     t = Thread(target=run_bot)
     t.daemon = True
     t.start()
     
-    # Chạy Flask Web Server ở luồng chính (cho Render)
     run_web()
