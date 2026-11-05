@@ -231,17 +231,17 @@ def check_telegram_commands():
                     message = update.get("message", {})
                     text = message.get("text", "").strip().lower()
                     
-                    if text in ["xem", "dau", "dầu"]:
+                    if text in ["Xem", "Dau", "Dầu"]:
                         print("Nhận lệnh Dầu. Đang gửi...")
                         report_msg = get_oil_report()
                         send_telegram_message("⚡ *BẢN TIN DẦU THÔ*\n\n" + report_msg)
                             
-                    elif text in ["vang", "gold", "vàng", "vàn"]:
+                    elif text in ["Vang", "gold", "Vàng", "vàn"]:
                         print("Nhận lệnh Vàng. Đang gửi...")
                         report_msg = get_gold_report()
                         send_telegram_message("⚡ *BẢN TIN VÀNG THẾ GIỚI*\n\n" + report_msg)
 
-                    elif text in ["chung", "all", "tonghop", "tổng hợp"]:
+                    elif text in ["Chung", "all", "tonghop", "tổng hợp"]:
                         print("Nhận lệnh Tổng hợp. Đang gửi...")
                         report_msg = get_all_market_report()
                         send_telegram_message(report_msg)
